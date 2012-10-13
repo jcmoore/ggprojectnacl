@@ -1,3 +1,6 @@
 [submodule "lib/ggframework"]
 	path = lib/ggframework
 	url = https://github.com/jcmoore/ggframework.git
+[submodule "lib/cocos2dx"]
+	path = lib/cocos2dx
+	url = https://github.com/jcmoore/cocos2d-x.git
