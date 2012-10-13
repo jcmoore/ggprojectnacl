@@ -1,0 +1,11 @@
+.DS_Store
+
+*.o
+*.mode*v*
+*.pbxuser
+*.xcbkptlist
+*.xcscheme
+*.xcworkspacedata
+*.xcuserstate
+*.nexe
+*.swp
