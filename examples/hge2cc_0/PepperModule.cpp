@@ -4,17 +4,17 @@
 #include <GLES2/gl2.h>
 #include "ppapi/gles2/gl2ext_ppapi.h"
 
-#include "ApplicationInstance.h"
+#include "PepperInstance.h"
 
-class ApplicationModule : public pp::Module
+class PepperModule : public pp::Module
 {
 public:
-	ApplicationModule()
+	PepperModule()
 		: pp::Module()
 	{
 	}
   
-	~ApplicationModule()
+	~PepperModule()
 	{
 		glTerminatePPAPI();
 	}
@@ -26,7 +26,7 @@ public:
 
 	pp::Instance* CreateInstance(PP_Instance instance)
 	{
-		return new ApplicationInstance(instance);
+		return new PepperInstance(instance);
 	}
 };
 
@@ -34,7 +34,7 @@ namespace pp
 {
 	Module* CreateModule()
 	{
-		return new ApplicationModule();
+		return new PepperModule();
 	}
 }
 

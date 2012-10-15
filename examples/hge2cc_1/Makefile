@@ -59,7 +59,7 @@ SRC_DIRS := cocos2dx \
 			cocos2dx/particle_nodes \
 			cocos2dx/platform \
 			cocos2dx/platform/nacl \
-			cocos2dx/platform/nacl/native \
+			cocos2dx/platform/nacl/hybrid \
 			cocos2dx/script_support \
 			cocos2dx/shaders \
 			cocos2dx/sprite_nodes \
