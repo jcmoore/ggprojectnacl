@@ -30,8 +30,9 @@ vs.nonnullor = function (value, alternative) {
 
 /* ~ */
 
-vs.args = function (collection) {
-	return Array.prototype.slice.call(collection);
+vs.args = function (collection, index) {
+	index = index || 0;
+	return Array.prototype.slice.call(collection, index);
 };
 
 vs.bind = function (target, func) {
@@ -44,17 +45,108 @@ vs.bind = function (target, func) {
 
 vs.clone = function (obj) {
 	if (obj instanceof Array) {
-		return obj.slice();
+		var result = [];
+		var count = obj.length;
+		
+		for (var i = 0; i < count; i++) {
+			result[i] = vs.clone(obj[i]);
+		}
+		
+		return result;
 	} else if (obj instanceof Object) {
 		var result = {};
 		
 		for (var k in obj) {
-			result[k] = obj[k];
+			result[k] = vs.clone(obj[k]);
 		}
 		
 		return result;
 	} else {
-		return null;
+		var result = obj;
+		return result;
+	}
+};
+
+vs.keys = (function () {
+var hasOwnProperty = Object.prototype.hasOwnProperty,
+	hasDontEnumBug = !({toString: null}).propertyIsEnumerable('toString'),
+	dontEnums = [
+		'toString',
+		'toLocaleString',
+		'valueOf',
+		'hasOwnProperty',
+		'isPrototypeOf',
+		'propertyIsEnumerable',
+		'constructor'
+	],
+	dontEnumsLength = dontEnums.length
+	
+	return function (obj) {
+		if (typeof obj !== 'object' && typeof obj !== 'function' || obj === null) throw new TypeError('Object.keys called on non-object')
+		
+		var result = []
+		
+		for (var prop in obj) {
+			if (hasOwnProperty.call(obj, prop)) result.push(prop)
+		}
+		
+		if (hasDontEnumBug) {
+			for (var i=0; i < dontEnumsLength; i++) {
+				if (hasOwnProperty.call(obj, dontEnums[i])) result.push(dontEnums[i])
+			}
+		}
+		return result
+	}
+})();
+
+vs.kvproof = function (obj) {
+	var kvs = vs.args(arguments, 1);
+	var count = kvs.length;
+	
+	var result = true;
+	
+	for (var i = 0; i < count - 1; i+=2) {
+		var k = kvs[i];
+		var v = kvs[i+1];
+		if (!vs.defined(obj[k])) {
+			result = false;
+			vs.assert(0, "kvproof failed: "+k+" is undefined", obj, k);
+		}
+		if (obj[k] == null) {
+			obj[k] = obj[k] || v;
+		}
+	}
+	
+	return result;
+};
+
+vs.keyproof = function (obj) {
+	var keys = vs.args(arguments, 1);
+	var count = keys.length;
+	
+	var result = true;
+	
+	for (var i = 0; i < count; i++) {
+		var k = keys[i];
+		if (!vs.defined(obj[k])) {
+			result = false;
+			vs.assert(0, "keyproof failed: "+k+" is undefined", obj, k);
+		}
+	}
+	
+	return result;
+};
+
+vs.valueproof = function (obj) {
+	var kvs = vs.args(arguments, 1);
+	var count = kvs.length;
+	
+	for (var i = 0; i < count; i+=2) {
+		var k = kvs[i];
+		var v = kvs[i+1];
+		if (obj[k] == null) {
+			obj[k] = obj[k] || v;
+		}
 	}
 };
 
@@ -187,74 +279,126 @@ vs.keytext.addresser = vs.keytext.namespace + "@";
 vs.keytext.domain = vs.keytext.namespace + ".";
 
 /* ~ */
+
+(function () { 
+
+/*
+var iframe = document.createElement("iframe");
+iframe.style.display = "none";
+document.documentElement.appendChild(iframe);
+
+// write a script into the <iframe> and create the sandbox
+frames[frames.length - 1].document.write(
+	"<script>"+
+	"parent.guardApply=Function.prototype.apply;"+
+	"parent.guardCall=Function.prototype.call;"+
+	"parent.guardCall=Array.prototype.slice;"+
+	"<\/script>"
+);
+
+var apply$ = window.guardApply;
+var call$ = window.guardCall;
+var slice$ = window.guardSlice;
+
+delete window.guardApply;
+delete window.guardCall;
+delete window.guardSlice;
+
+var safe$ = function (func) {
+	func.apply = apply$;
+	func.call = call$;
+	return func;
+};
+
+safe$(apply$);
+safe$(call$);
+safe$(slice$);
+
+document.documentElement.removeChild(iframe);
+*/
+
 (function () {
-	var guid = 0;
 	
-	vs.Unique = function () {
-		var _uuid = null;
+	var Uniqueness = function (seed) {
+		var guid = seed;
 		
-		if (!(this.hasOwnProperty("ouuid")) ||
-			!(this.ouuid instanceof Function)) {
-			
-			this.ouuid = function () {
-				return _uuid;
-			};
-			
-			_uuid = ++guid;
+		if (guid !== null) {
+			guid = (seed || 0) + 0;
 		}
+		
+		return (function () {
+			var _uuid = null;
+			
+			if (!(this.hasOwnProperty("ouuid")) ||
+				!(this.ouuid instanceof Function)) {
+				
+				this.ouuid = function () {
+					return _uuid;
+				};
+				
+				if (guid !== null) {
+					_uuid = ++guid;
+				}
+			}
+		});
 	};
 	
-	vs.Ruled = function (domain) {
-		if (!(this.hasOwnProperty("odname")) ||
-			!(this.odname instanceof Function)) {
+	(function () {
+		
+		var uniques = {};
+		
+		var heisenberg = (function () {})();
+		
+		var CommonRuled = Uniqueness(null);
+		
+		vs.Ruled = function (lookup, domain) {
 			
 			if (domain == null) {
 				domain = null;
 			}
 			
-			this.odname = function () {
-				return domain;
-			};
-		}
+			if (lookup == null) {
+				lookup = null;
+				domain = heisenberg;
+			} 
+			
+			if (lookup) {
+				var UniqueRuled = uniques[domain] = uniques[domain] || Uniqueness();
+				
+				UniqueRuled.call(this);
+			} else {
+				CommonRuled.call(this);
+			}
+			
+			if (!(this.hasOwnProperty("odname")) ||
+				!(this.odname instanceof Function)) {
+				
+				this.odname = function () {
+					return domain;
+				};
+			}
+			
+			if (!(this.hasOwnProperty("oruler")) ||
+				!(this.oruler instanceof Function)) {
+				
+				this.oruler = function () {
+					return lookup;
+				};
+			}
+		};
+	})();
+	
+	var UniqueGuard = Uniqueness();
+	
+	vs.Guard = function () {
+		UniqueGuard.call(this);
 	};
+	
+	vs.Uniqueness = Uniqueness;
 	
 })();
 
 (function () {
-	vs.Guard = function () {
-		vs.Unique.call(this);
-	};
-	
-	vs.Property = function (guard, result) {
-		result = result || {};
-		this.getter = function (name, field, sideeffect) {
-			vs.assert(name.substr(0, 3) == "get" || name.substr(0, 2) == "is", "getter name without 'get' or 'is' prefix ("+name+" -- probably a typo)");
-			result[name] = function () {
-				var pmems = this.opriv(guard);
-				if (sideeffect instanceof Function) {
-					sideeffect.call(this, pmems[field], name, field)
-				}
-				return pmems[field];
-			};
-			return this;
-		};
-		this.setter = function (name, field, sideeffect) {
-			vs.assert(name.substr(0, 3) == "set", "setter name without 'set' prefix ("+name+" -- probably a typo)");
-			result[name] = function (value) {
-				var pmems = this.opriv(guard);
-				var previous = pmems[field];
-				pmems[field] = value;
-				if (sideeffect instanceof Function) {
-					sideeffect.call(this, pmems[field], previous, name, field)
-				}
-				return this;
-			};
-			return this;
-		};
-		this.result = function () {
-			return result;
-		};
-	};
 	
 	vs.iface = function (target, interfaces) {
 		var args = vs.args(arguments);
@@ -274,7 +418,7 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 	}
 	
 	vs.adapt = (function () {
-		var employ = function (guard) {
+		var employ = (function (guard) {
 			if (!(this.hasOwnProperty("opriv")) ||
 				!(this.opriv instanceof Function) ||
 				this.opriv(token) !== secret) {
@@ -316,75 +460,79 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 				(guard.ouuid instanceof Function)) {
 				var gkey = guard.ouuid();
 				var gpost = this.opriv(dog);
-				if (gpost &&
-					gpost[gkey] == null) {
-					gpost[gkey] = guard;
-					return (this.opriv(uber)[gkey] = {});
+				if (gpost) {
+					if (gpost[gkey] == null) {
+						gpost[gkey] = guard;
+						return (this.opriv(uber)[gkey] = {});
+					} else if (gpost[gkey] === guard) {
+						return (this.opriv(uber)[gkey]);
+					}
 				}
 			}
-		};
+		});
 		
-		return function (parent, guard, pdefs, child, pfaces) {
+		return (function (guard, config, parent) {
 			
-			var params = vs.args(arguments).slice(2);
+			var params = vs.args(arguments, 1);
 			
-			if (params[0] instanceof Function) {
-				pdefs = null;
-				child = params.shift();
-				pfaces = params.shift();
-			} else if (params[1] instanceof Function) {
-				pdefs = params.shift();
-				child = params.shift();
-				pfaces = params.shift();
-			} else if (params[1] instanceof Object) {
-				pdefs = params.shift();
-				child = null;
-				pfaces = params.shift();
-			} else {
-				pdefs = null;
-				child = null;
-				pfaces = params.shift();
-			}
+			parent = params.pop();
+			config = params.pop();
 			
-			if (guard instanceof Array) {
-				params = guard;
-				guard = params.shift();
-			} else {
-				params = [];
-			}
+			vs.kvproof(
+				config,
+				"pdefs", null,
+				"onnew", null,
+				"ongen", null,
+				"pfaces", null
+			);
 			
 			var result = function () {
 				var _priv = employ.call(this, guard);
 				
-				vs.iface(_priv, pdefs);
+				vs.iface(_priv, config.pdefs);
 				
-				if (child instanceof Function) {
-					child.apply(this, vs.args(arguments));
+				if (config.onnew instanceof Function) {
+					config.onnew.apply(this, vs.args(arguments));
 				}
 			};
 			
-			result.implementation = child;
+			result.implementation = config.onnew;
 			
 			if (parent instanceof Function) {
-				var helper = function (vars) {
+				var support = function (vars) {
 					parent.apply(this, vars);
 				};
-				helper.prototype = parent.prototype;
-				result.prototype = new helper(params);
+				support.prototype = parent.prototype;
+				result.prototype = new support(params);
 			}
 			
 			var _pface = employ.call(result.prototype, guard);
 			
 			result.adapt = function () {
-				var args = vs.args(arguments);
-				args.unshift(this);
-				return vs.adapt.apply(this, args);
+				var vars = vs.args(arguments);
+				vars.push(this); // "this" is the "parent" constructor
+				return vs.adapt.apply(this, vars);
 			};
 			
-			vs.iface(_pface, pfaces);
+			
+			var helper = function (vars) {
+				result.apply(this, vars);
+			};
+			helper.prototype = result.prototype;
+			result.gen = function () {
+				var obj = new helper(arguments);
+				
+				if (config.ongen instanceof Function) {
+					config.ongen.apply(obj, arguments);
+				}
+				
+				return obj;
+			};
+			
+			vs.iface(_pface, config.pfaces);
 			
 			return result;
-		}
+		});
 	})();
 	
 	var dog = new vs.Guard();
@@ -392,21 +540,62 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 	var token = new vs.Guard();
 	var secret = new vs.Guard();
 	
-	vs.Target = vs.adapt(null, new vs.Guard());
+	vs.Target = vs.adapt(new vs.Guard(), {
+		pdefs:null,
+		pfaces:null,
+		onnew:null,
+		ongen:null,
+	}, null);
 })();
+
+vs.Property = function (guard, result) {
+	result = result || {};
+	this.getter = function (name, field, sideeffect) {
+		vs.assert(name.substr(0, 3) == "get" || name.substr(0, 2) == "is", "getter name without 'get' or 'is' prefix ("+name+" -- probably a typo)");
+		result[name] = function () {
+			var pvars = this.opriv(guard);
+			if (sideeffect instanceof Function) {
+				sideeffect.call(this, pvars[field], name, field);
+			}
+			return pvars[field];
+		};
+		return this;
+	};
+	this.setter = function (name, field, sideeffect) {
+		vs.assert(name.substr(0, 3) == "set", "setter name without 'set' prefix ("+name+" -- probably a typo)");
+		result[name] = function (value) {
+			var pvars = this.opriv(guard);
+			var previous = pvars[field];
+			pvars[field] = value;
+			if (sideeffect instanceof Function) {
+				sideeffect.call(this, pvars[field], previous, name, field);
+			}
+			return this;
+		};
+		return this;
+	};
+	this.result = function () {
+		return result;
+	};
+};
 
 (function () {
 	var guard = new vs.Guard();
 	
-	vs.Model = vs.Target.adapt(guard);
-})();
-
-(function () {
-	var guard = new vs.Guard();
+	vs.Model = vs.Target.adapt(guard, {
+		pdefs:null,
+		pfaces:null,
+		onnew:null,
+		ongen:null,
+	});
 	
-	vs.Entity = vs.Model.adapt(guard, function (domain) {
-		vs.Unique.call(this);
-		vs.Ruled.call(this, domain);
+	vs.Entity = vs.Model.adapt(guard, {
+		pdefs:null,
+		pfaces:null,
+		onnew:function (lookup, domain) {
+			vs.Ruled.call(this, lookup, domain);
+		},
+		ongen:null,
 	});
 	
 	var properties = (new vs.Property(guard,
@@ -436,6 +625,8 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 	vs.iface(vs.Entity.prototype, properties);
 })();
 
+})();
+
 /* ~ */
 
 (function () {
@@ -444,36 +635,35 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 	var piface = null;
 	
 	vs.Fabric = vs.Entity.adapt(guard, {
-		_uri:null,
-		_width:NaN,
-		_height:NaN,
-		_dirty:true,
-	},
-	function (domain, filepath, notask) {
-		vs.Entity.call(this, domain);
-		
-		var pmems = this.opriv(guard);
-		pmems._uri = filepath || "";
-		
-		if (notask !== true) { // typically true when an adaptation prototype
-			this.task("Fabric", {
-				uri:pmems._uri,
-				//width:pmems._width,
-				//height:pmems._height,
-			}, vs.bind(this, piface.clean));
-		}
-	},
-	(new vs.Property(guard,
-	{
-		clean:function (config) {
-			var pmems = this.opriv(guard);
-			pmems._width = config.width;
-			pmems._height = config.height;
-			pmems._dirty = false;
+		pdefs:{
+			_uri:null,
+			_width:NaN,
+			_height:NaN,
+			_dirty:true,
 		},
-	}))
-	.result()
-	);
+		pfaces:(new vs.Property(guard, {
+			clean:function (config) {
+				var pmems = this.opriv(guard);
+				pmems._width = config.width;
+				pmems._height = config.height;
+				pmems._dirty = false;
+			},
+		}))
+		.result(),
+		onnew:function (lookup, domain, filepath) {
+			vs.Entity.call(this, lookup, domain);
+			
+			var pmems = this.opriv(guard);
+			pmems._uri = filepath || "";
+		},
+		ongen:function () {
+			this.task("Fabric", {
+				uri:this.getURI(),
+				//width:this.getWidth(),
+				//height:this.getHeight(),
+			}, vs.bind(this, piface.clean));
+		},
+	});
 	
 	piface = vs.papi(guard, vs.Fabric);
 	
@@ -523,63 +713,62 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 	// and forward() calls matching entity's interface to its contained entity
 	// this will improve composability of all "derived" types
 	vs.Nexus = vs.Entity.adapt(guard, {
-		_branch:null,
-		_leaves:null,
-		_ele:0,
-		_code:null,
-		_root:null,
-		_loc:null,
-		_magn:null,
-		_ori:0,
-	},
-	function (domain, notask) {
-		vs.Entity.call(this, domain);
-		
-		var pmems = this.opriv(guard);
-		pmems._root = vs.geom.p(0, 0);
-		pmems._loc = vs.geom.p(0, 0);
-		pmems._magn = vs.geom.p(1, 1);
-		
-		if (notask !== true) { // typically true when an adaptation prototype
-			this.task("Nexus", {
-				root:pmems._root,
-				loc:pmems._loc,
-				magn:pmems._magn,
-				ele:pmems._ele,
-				ori:pmems._ori,
-				code:pmems._code,
-			});
-		}
-	},
-	(new vs.Property(guard,
-	{
-		lazyLeaves:function () {
-			var pmems = this.opriv(guard);
-			return (pmems._leaves = (pmems._leaves || []));
+		pdefs:{
+			_branch:null,
+			_leaves:null,
+			_ele:0,
+			_code:null,
+			_root:null,
+			_loc:null,
+			_magn:null,
+			_ori:0,
 		},
-		insertLeaf:function (other, ele) {
-			var nexus = null;
-			var leaves = piface.lazyLeaves.call(this);
-			var count = leaves.length;
-			if (count > 0) {
-				nexus = leaves[count - 1];
-				if (nexus.getEle() > ele) {
-					for (var i = 0; i < count; i++) {
-						nexus = leaves[i];
-						if (nexus.getEle() > ele) {
-							leaves.splice(i, 0, other);
-							break;
+		pfaces:(new vs.Property(guard, {
+			lazyLeaves:function () {
+				var pmems = this.opriv(guard);
+				return (pmems._leaves = (pmems._leaves || []));
+			},
+			insertLeaf:function (other, ele) {
+				var nexus = null;
+				var leaves = piface.lazyLeaves.call(this);
+				var count = leaves.length;
+				if (count > 0) {
+					nexus = leaves[count - 1];
+					if (nexus.getEle() > ele) {
+						for (var i = 0; i < count; i++) {
+							nexus = leaves[i];
+							if (nexus.getEle() > ele) {
+								leaves.splice(i, 0, other);
+								break;
+							}
 						}
 					}
 				}
-			}
-			leaves.push(other);
-			other.setEle(ele);
+				leaves.push(other);
+				other.setEle(ele);
+			},
+		}))
+		.setter("setBranch", "_branch")
+		.result(),
+		onnew:function (lookup, domain) {
+			vs.Entity.call(this, lookup, domain);
+			
+			var pmems = this.opriv(guard);
+			pmems._root = vs.geom.p(0, 0);
+			pmems._loc = vs.geom.p(0, 0);
+			pmems._magn = vs.geom.p(1, 1);
 		},
-	}))
-	.setter("setBranch", "_branch")
-	.result()
-	);
+		ongen:function () {
+			this.task("Nexus", {
+				root:this.getRoot(),
+				loc:this.getLoc(),
+				magn:this.getMagn(),
+				ele:this.getEle(),
+				ori:this.getOri(),
+				code:this.getCode(),
+			});
+		},
+	});
 	
 	piface = vs.papi(guard, vs.Nexus);
 	
@@ -693,35 +882,37 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 	
 	var piface = null;
 	
-	vs.Pixie = vs.Nexus.adapt([guard, false, true], {
-		_box:null,
-		_pigment:null,
-		_density:1,
-		_mirrorX:false,
-		_mirrorY:false,
-		_fabric:null,
-	},
-	function (domain, fabric, box, notask) {
-		vs.Nexus.call(this, domain, true);
-		
-		var pmems = this.opriv(guard);
-		pmems._fabric = fabric;
-		pmems._pigment = vs.geom.rgb(1, 1, 1);
-		
-		if (box){
-			pmems._box = vs.geom.rect.cp(box);
-		} else if ((pmems._fabric instanceof vs.Fabric) &&
-			!pmems._fabric.isDirty()) {
-			pmems._box = vs.geom.rect(0, 0, pmems._fabric.getWidth(), pmems._fabric.getHeight());
-		} else {
-			pmems._box = vs.geom.rect(0, 0, 0, 0);
-		}
-		
-		if (notask !== true) { // typically true when an adaptation prototype
+	vs.Pixie = vs.Nexus.adapt(guard, {
+		pdefs:{
+			_box:null,
+			_pigment:null,
+			_density:1,
+			_mirrorX:false,
+			_mirrorY:false,
+			_fabric:null,
+		},
+		pfaces:null,
+		onnew:function (lookup, domain, fabric, box) {
+			vs.Nexus.call(this, lookup, domain);
+			
+			var pmems = this.opriv(guard);
+			pmems._fabric = fabric;
+			pmems._pigment = vs.geom.rgb(1, 1, 1);
+			
+			if (box){
+				pmems._box = vs.geom.rect.cp(box);
+			} else if ((pmems._fabric instanceof vs.Fabric) &&
+				!pmems._fabric.isDirty()) {
+				pmems._box = vs.geom.rect(0, 0, pmems._fabric.getWidth(), pmems._fabric.getHeight());
+			} else {
+				pmems._box = vs.geom.rect(0, 0, 0, 0);
+			}
+		},
+		ongen:function () {
 			var task = {
-				box:pmems._box,
-				pigment:pmems._pigment,
-				density:pmems._density,
+				box:this.getBox(),
+				pigment:this.getPigment(),
+				density:this.getDensity(),
 				root:this.getRoot(),
 				loc:this.getLoc(),
 				magn:this.getMagn(),
@@ -730,18 +921,19 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 				code:this.getCode(),
 			};
 			
-			if (pmems._fabric instanceof vs.Fabric) {
-				task["fabricId"] = pmems._fabric.ouuid();
+			var fabric = this.getFabric();
+			
+			if (fabric instanceof vs.Fabric) {
+				task["fabricId"] = fabric.ouuid();
 				
 				if (pmems._fabric.odname()) {
-					result["fabricDn"] = pmems._fabric.odname();
+					result["fabricDn"] = fabric.odname();
 				}
 			}
 			
 			this.task("Pixie", task);
-		}
-	}
-	);
+		},
+	});
 	
 	piface = vs.papi(guard, vs.Pixie);
 	
@@ -784,7 +976,7 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 		},
 		getPigment:function () {
 			var pmems = this.opriv(guard);
-			return vs.geom.rect.cp(pmems._box);
+			return vs.geom.rgb.cp(pmems._pigment);
 		},
 		setPigment:function (rgb) {
 			var pmems = this.opriv(guard);
@@ -854,14 +1046,15 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 	
 	var piface = null;
 	
-	vs.Surface = vs.Nexus.adapt([guard, false, true], {
-	},
-	function (domain, fabric, box, notask) {
-		vs.Nexus.call(this, domain, true);
-		
-		var pmems = this.opriv(guard);
-		
-		if (notask !== true) { // typically true when an adaptation prototype
+	vs.Surface = vs.Nexus.adapt(guard, {
+		pdefs:null,
+		pfaces:null,
+		onnew:function (lookup, domain) {
+			vs.Nexus.call(this, lookup, domain, true);
+			
+			var pmems = this.opriv(guard);
+		},
+		ongen:function () {
 			var task = {
 				root:this.getRoot(),
 				loc:this.getLoc(),
@@ -872,9 +1065,8 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 			};
 			
 			this.task("Surface", task);
-		}
-	}
-	);
+		},
+	});
 	
 	piface = vs.papi(guard, vs.Surface);
 	
@@ -896,14 +1088,15 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 	
 	var piface = null;
 	
-	vs.Field = vs.Nexus.adapt([guard, false, true], {
-	},
-	function (domain, fabric, box, notask) {
-		vs.Nexus.call(this, domain, true);
-		
-		var pmems = this.opriv(guard);
-		
-		if (notask !== true) { // typically true when an adaptation prototype
+	vs.Field = vs.Nexus.adapt(guard, {
+		pdefs:null,
+		pfaces:null,
+		onnew:function (lookup, domain) {
+			vs.Nexus.call(this, lookup, domain);
+			
+			var pmems = this.opriv(guard);
+		},
+		ongen:function () {
 			var task = {
 				root:this.getRoot(),
 				loc:this.getLoc(),
@@ -914,9 +1107,8 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 			};
 			
 			this.task("Field", task);
-		}
-	}
-	);
+		},
+	});
 	
 	piface = vs.papi(guard, vs.Field);
 	
@@ -928,6 +1120,319 @@ vs.keytext.domain = vs.keytext.namespace + ".";
 
 /* ~ */
 
+(function () {
+	
+	var emptyf = function () {};
+	
+	var guard = guard || new vs.Guard();
+	
+(function () {
+	
+	var piface = null;
+	
+	vs.Worker = vs.Target.adapt(guard, {
+		pdefs:{
+			_alias:null,
+			_open:null,
+			_close:null,
+			_consume:null,
+			_interface:null,
+		},
+		pfaces:null,
+		onnew:function (config) {
+			
+			config = config || {};
+			
+			vs.kvproof(
+				config,
+				"alias", "anon",
+				"open", emptyf,
+				"close", emptyf,
+				"consume", emptyf
+			);
+			
+			var pmems = this.opriv(guard);
+			pmems._alias = config.alias;
+			pmems._open = config.open;
+			pmems._close = config.close;
+			pmems._consume = config.consume;
+		},
+		ongen:null,
+	});
+	
+	piface = vs.papi(guard, vs.Worker);
+	
+	var properties = (new vs.Property(guard, {
+		open:function () {
+			var pmems = this.opriv(guard);
+			pmems._open.apply(this, arguments);
+		},
+		close:function () {
+			var pmems = this.opriv(guard);
+			pmems._close.apply(this, arguments);
+		},
+		receive:function (json) {
+			var pmems = this.opriv(guard);
+			
+			if (json instanceof Array) {
+				var count = json.length;
+				for (var i = 0; i < count; i++) {
+					pmems._consume.call(this, json[i]);
+				}
+			} else if (json instanceof Object) {
+				pmems._consume.call(this, json);
+			}
+		},
+		produce:function (json, purify) {
+			var pmems = this.opriv(guard);
+			
+			if (pmems._interface) {
+				if (purify) {
+					json = vs.clone(json);
+				}
+				
+				var product = {};
+				product[pmems._alias] = json;
+				pmems._interface.produce(product);
+				
+				return true;
+			}
+			
+			return false;
+		},
+	}))
+	.getter("getAlias", "_alias")
+	.getter("getInterface", "_interface")
+	.result();
+	
+	vs.iface(vs.Worker.prototype, properties);
+})();
+
+	var guard = guard || new vs.Guard();
+	
+(function () {
+	
+	var piface = null;
+	
+	vs.Interface = vs.Worker.adapt(guard, {
+			alias:null,
+			open:null,
+			close:null,
+			consume:null,
+		},
+		{
+		pdefs:{
+			_workers:null,
+			_offQueue:null,
+			_mainQueue:null,
+		},
+		pfaces:(new vs.Property(guard, {
+			impOpen:function () {
+				var pmems = this.opriv(guard);
+				
+				for (var alias in pmems._workers) {
+					var worker = pmems._workers[alias];
+					worker.open.apply(worker, arguments);
+				}
+				
+				return true;
+			},
+			impConsume:function (json) {
+				var pmems = this.opriv(guard);
+				
+				var result = true;
+				
+				for (var alias in json) {
+					var worker = pmems._workers[alias];
+					if (worker) {
+						result = worker.receive(json[alias]) && result;
+					}
+					result = false;
+					vs.assert(0, "unhandled work request", alias, json, pmems._workers, this);
+				}
+				
+				return result;
+			},
+			impClose:function () {
+				var pmems = this.opriv(guard);
+				
+				var result = {};
+				
+				var keys = vs.keys(pmems._workers);
+				var count = keys.length;
+				
+				// copy the keys because removeWorker may modify pmems._workers (unnecessary safety?)
+				for (var i = 0; i < count; i++) {
+					var alias = keys[i]
+					var worker = this.removeWorker(alias);
+					
+					if (worker) {
+						result[alias] = worker;
+					}
+				}
+				
+				return result;
+			},
+		}))
+		.result(),
+		onnew:function (config) {
+			
+			config = config || {};
+			
+			vs.kvproof(
+				config,
+				"alias", vs.keytext.interface,
+				"open", piface.impOpen,
+				"close", piface.impConsume,
+				"consume", piface.impClose
+			);
+			
+			vs.Worker.call(this, config);
+			
+			var pmems = this.opriv(guard);
+			pmems._workers = {};
+		},
+		ongen:null,
+	});
+	
+	piface = vs.papi(guard, vs.Interface);
+	
+	var properties = (new vs.Property(guard, {
+		addWorker:function (worker) {
+			var pmems = this.opriv(guard);
+			var alias = worker.getAlias();
+			
+			if (pmems._workers[alias] != null) {
+				vs.assert(0, "worker collision on name "+alias, this, worker, pmems._workers);
+				return false;
+			}
+			
+			var omems = worker.opriv(guard);
+			if (omems._interface != null) {
+				vs.assert(0, "worker already has an interface "+omems._interface.alias, this, worker, omems._interface);
+				return false;
+			}
+			
+			pmems._workers[alias] = worker;
+			omems._interface = this;
+			worker.open.apply(worker, vs.args(arguments, 1));
+			
+			return true;
+		},
+		removeWorker:function (alias) {
+			var pmems = this.opriv(guard);
+			
+			var worker = pmems._workers[alias];
+			
+			if (!worker) {
+				return null;
+			}
+			
+			var omems = worker.opriv(guard);
+			if (omems._interface != this) {
+				worker.close.apply(worker, vs.args(arguments, 1));
+				omems._interface = null;
+			} else {
+				vs.assert(0, "worker has an interface that is not this interface: "+omems._interface.alias, this, worker, omems._interface);
+			}
+			
+			delete pmems._workers[alias];
+			
+			return worker;
+		},
+		produce:function (json, purify) {
+			
+			if (vs.Worker.prototype.produce.call(this, json, purify)) {
+				return true;
+			}
+			
+			var pmems = this.opriv(guard);
+			pmems._mainQueue = pmems.mainQueue || [];
+			
+			if (purify) {
+				json = vs.clone(json);
+			}
+			
+			pmems._mainQueue.push(json);
+			
+			return true;
+		},
+		handle:function (message) {
+			
+			var json = null;
+			
+			try {
+				json = JSON.parse(message);
+			} catch (e) {}
+			
+			this.receive(json);
+		},
+	}))
+	.result();
+	
+	vs.iface(vs.Interface.prototype, properties);
+})();
+
+	var guard = guard || new vs.Guard();
+	
+(function () {
+	
+	var piface = null;
+	
+	vs.Addresser = vs.Worker.adapt(guard, {
+			alias:null,
+			open:null,
+			close:null,
+			consume:null,
+		},
+		{
+		pdefs:{
+			_lookup:null,
+		},
+		pfaces:null,
+		onnew:function (config) {
+			
+			config = config || {};
+			
+			vs.keyproof(
+				config,
+				"alias",
+				"open",
+				"close",
+				"consume"
+			);
+			
+			vs.Worker.call(this, config);
+			
+			var pmems = this.opriv(guard);
+			pmems._lookup = {};
+		},
+		ongen:null,
+	});
+	
+	piface = vs.papi(guard, vs.Addresser);
+	
+	var properties = (new vs.Property(guard, {
+		whois:function (domain, uuid) {
+			var pmems = this.opriv(guard);
+			
+			if (domain == null) {
+				domain = null;
+			}
+			
+			var registry = pmems._lookup[domain] = pmems._lookup[domain] || {};
+			
+			return registry[uuid];
+		},
+	}))
+	.result();
+	
+	vs.iface(vs.Addresser.prototype, properties);
+})();
+
+})();
+
+/* ~ */
 
 var duu = duu ? duu : {};
 
@@ -2692,19 +3197,29 @@ duu.build_case( function (closingStatements)  {
 })();
 
 (function () {
-	var fabric = new vs.Fabric();
+	
+	vs.lookup = vs.Addresser.gen({
+		alias:null,
+		open:null,
+		close:null,
+		consume:null,
+	});
+	
+	var domain = null;
+	
+	var fabric = vs.Fabric.gen(vs.lookup, domain);
 	
 	fabric.setURI("CloseNormal.png");
 	
-	var surface = new vs.Surface();
+	var surface = new vs.Surface.gen(vs.lookup, domain);
 	
 	surface.run();
 	
-	var field = new vs.Field();
+	var field = new vs.Field.gen(vs.lookup, domain);
 	
 	surface.addLeaf(field);
 	
-	var pixie = new vs.Pixie();
+	var pixie = new vs.Pixie.gen(vs.lookup, domain);
 	
 	field.addLeaf(pixie);
 	
