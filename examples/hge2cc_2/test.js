@@ -28,6 +28,24 @@ vs.nonnullor = function (value, alternative) {
 	return (value != null) ? value : alternative;
 }
 
+vs.emptied = function (value) {
+	if (value instanceof Array) {
+		return value.length == 0;
+	} else if (value instanceof Obejct) {
+		for (var key in value) {
+			return false;
+		}
+		return true;
+	}
+	vs.assert(0, "unexpected value for emptiness check: "+value, value);
+};
+
+/* ~ */
+
+vs.isString = function (value) {
+	return typeof value === "string" || (value instanceof String);
+}
+
 /* ~ */
 
 vs.args = function (collection, index) {
@@ -271,12 +289,14 @@ vs.keytext = {};
 
 vs.keytext.namespace = "hge";
 vs.keytext.uuid = vs.keytext.namespace + "id";
+vs.keytext.domain = vs.keytext.namespace + ".";
 vs.keytext.task = vs.keytext.namespace + "";
 
-vs.keytext.interface = vs.keytext.namespace + "$";
+vs.keytext.superior = vs.keytext.namespace + "$";
+vs.keytext.gate = "#";
+//vs.keytext.doublegate = "##";
 vs.keytext.logger = vs.keytext.namespace + "<<";
 vs.keytext.addresser = vs.keytext.namespace + "@";
-vs.keytext.domain = vs.keytext.namespace + ".";
 
 /* ~ */
 
@@ -349,18 +369,25 @@ document.documentElement.removeChild(iframe);
 		
 		var heisenberg = (function () {})();
 		
+		vs.validDomain = function (domain) {
+			if (domain == null) {
+				domain = null;
+			}
+			return domain;
+		};
+		
 		var CommonRuled = Uniqueness(null);
 		
 		vs.Ruled = function (lookup, domain) {
 			
-			if (domain == null) {
-				domain = null;
-			}
+			domain = vs.validDomain(domain);
 			
 			if (lookup == null) {
 				lookup = null;
 				domain = heisenberg;
-			} 
+			} else {
+				vs.assert((lookup instanceof vs.Addresser), "ruler must be a valid addresser (or none at all)", lookup, this);
+			}
 			
 			if (lookup) {
 				var UniqueRuled = uniques[domain] = uniques[domain] || Uniqueness();
@@ -552,6 +579,27 @@ vs.Property = function (guard, result) {
 	result = result || {};
 	this.getter = function (name, field, sideeffect) {
 		vs.assert(name.substr(0, 3) == "get" || name.substr(0, 2) == "is", "getter name without 'get' or 'is' prefix ("+name+" -- probably a typo)");
+		if (field instanceof Array) {
+			if (field.length > 1) {
+				field = vs.clone(field);
+				result[name] = function () {
+					var pvars = this.opriv(guard);
+					var current = pvars;
+					var last = field.length - 1; // note the "-1"
+					for (var i = 0; i < last; i++) {
+						current = current[field[i]];
+					}
+					last = field[last];
+					if (sideeffect instanceof Function) {
+						sideeffect.call(this, current[last], name, field);
+					}
+					return current[last];
+				};
+				return this;
+			} else {
+				field = field[0];
+			}
+		}
 		result[name] = function () {
 			var pvars = this.opriv(guard);
 			if (sideeffect instanceof Function) {
@@ -563,6 +611,29 @@ vs.Property = function (guard, result) {
 	};
 	this.setter = function (name, field, sideeffect) {
 		vs.assert(name.substr(0, 3) == "set", "setter name without 'set' prefix ("+name+" -- probably a typo)");
+		if (field instanceof Array) {
+			if (field.length > 1) {
+				field = vs.clone(field);
+				result[name] = function (value) {
+					var pvars = this.opriv(guard);
+					var current = pvars;
+					var last = field.length - 1; // note the "-1"
+					for (var i = 0; i < last; i++) {
+						current = current[field[i]];
+					}
+					last = field[last];
+					var previous = current[last];
+					current[field] = value;
+					if (sideeffect instanceof Function) {
+						sideeffect.call(this, current[last], previous, name, field);
+					}
+					return this;
+				};
+				return this;
+			} else {
+				field = field[0];
+			}
+		}
 		result[name] = function (value) {
 			var pvars = this.opriv(guard);
 			var previous = pvars[field];
@@ -600,7 +671,11 @@ vs.Property = function (guard, result) {
 	
 	var properties = (new vs.Property(guard,
 	{
-		task:function (tag, result, nodispatch) {
+		enact:function (json, dns) {
+			vs.assert(0, "we did it? "+JSON.stringify(json), this);
+			return true;
+		},
+		task:function (tag, result) {
 			result = result || {};
 			result[vs.keytext.task] = tag;
 			result[vs.keytext.uuid] = this.ouuid();
@@ -608,17 +683,18 @@ vs.Property = function (guard, result) {
 			if (this.odname()) {
 				result[vs.keytext.domain] = this.odname();
 			}
-			if (nodispatch !== true) {
-				// send task to bridge
-				if (vs.api &&
-					(vs.api.request instanceof Function)) {
-					var request = {};
-					request[vs.keytext.addresser] = result;
-					vs.api.request(request);
-				}
+			// send task to bridge
+			if (vs.api &&
+				(vs.api.request instanceof Function)) {
+				var request = {};
+				request[vs.keytext.addresser] = result;
+				vs.api.request(request);
 			}
 			return result;
-		}
+		},
+		degen:function (options) {
+			return this.task("~", options);
+		},
 	}))
 	.result();
 	
@@ -1046,7 +1122,7 @@ vs.Property = function (guard, result) {
 	
 	var piface = null;
 	
-	vs.Surface = vs.Nexus.adapt(guard, {
+	vs.Scape = vs.Nexus.adapt(guard, {
 		pdefs:null,
 		pfaces:null,
 		onnew:function (lookup, domain) {
@@ -1068,7 +1144,7 @@ vs.Property = function (guard, result) {
 		},
 	});
 	
-	piface = vs.papi(guard, vs.Surface);
+	piface = vs.papi(guard, vs.Scape);
 	
 	var properties = (new vs.Property(guard, {
 		run:function () {
@@ -1078,7 +1154,7 @@ vs.Property = function (guard, result) {
 	}))
 	.result();
 	
-	vs.iface(vs.Surface.prototype, properties);
+	vs.iface(vs.Scape.prototype, properties);
 })();
 
 /* ~ */
@@ -1088,7 +1164,7 @@ vs.Property = function (guard, result) {
 	
 	var piface = null;
 	
-	vs.Field = vs.Nexus.adapt(guard, {
+	vs.Zone = vs.Nexus.adapt(guard, {
 		pdefs:null,
 		pfaces:null,
 		onnew:function (lookup, domain) {
@@ -1110,12 +1186,12 @@ vs.Property = function (guard, result) {
 		},
 	});
 	
-	piface = vs.papi(guard, vs.Field);
+	piface = vs.papi(guard, vs.Zone);
 	
 	var properties = (new vs.Property(guard))
 	.result();
 	
-	vs.iface(vs.Field.prototype, properties);
+	vs.iface(vs.Zone.prototype, properties);
 })();
 
 /* ~ */
@@ -1133,12 +1209,23 @@ vs.Property = function (guard, result) {
 	vs.Worker = vs.Target.adapt(guard, {
 		pdefs:{
 			_alias:null,
-			_open:null,
-			_close:null,
-			_consume:null,
-			_interface:null,
+			_init:null,
+			_term:null,
+			_digest:null,
+			_report:null,
+			_superior:null,
 		},
-		pfaces:null,
+		pfaces:(new vs.Property(guard, {
+			impReport:function (json, purify) {
+				var pmems = this.opriv(guard);
+				
+				var product = {};
+				product[pmems._alias] = json;
+				
+				return product;
+			},
+		}))
+		.result(),
 		onnew:function (config) {
 			
 			config = config || {};
@@ -1146,16 +1233,18 @@ vs.Property = function (guard, result) {
 			vs.kvproof(
 				config,
 				"alias", "anon",
-				"open", emptyf,
-				"close", emptyf,
-				"consume", emptyf
+				"init", null,
+				"term", null,
+				"digest", null,
+				"report", piface.impReport
 			);
 			
 			var pmems = this.opriv(guard);
 			pmems._alias = config.alias;
-			pmems._open = config.open;
-			pmems._close = config.close;
-			pmems._consume = config.consume;
+			pmems._init = config.init;
+			pmems._term = config.term;
+			pmems._digest = config.digest;
+			pmems._report = config.report;
 		},
 		ongen:null,
 	});
@@ -1163,46 +1252,73 @@ vs.Property = function (guard, result) {
 	piface = vs.papi(guard, vs.Worker);
 	
 	var properties = (new vs.Property(guard, {
-		open:function () {
+		init:function () {
 			var pmems = this.opriv(guard);
-			pmems._open.apply(this, arguments);
+			if (!pmems._init) {
+				return;
+			}
+			return pmems._init.apply(this, arguments);
 		},
-		close:function () {
+		term:function () {
 			var pmems = this.opriv(guard);
-			pmems._close.apply(this, arguments);
+			if (!pmems._term) {
+				return;
+			}
+			return pmems._term.apply(this, arguments);
 		},
-		receive:function (json) {
+		consume:function (json) {
 			var pmems = this.opriv(guard);
+			if (!pmems._digest) {
+				return false;
+			}
+			
+			var result = true;
 			
 			if (json instanceof Array) {
 				var count = json.length;
 				for (var i = 0; i < count; i++) {
-					pmems._consume.call(this, json[i]);
+					result = pmems._digest.call(this, json[i]) && result;
 				}
 			} else if (json instanceof Object) {
-				pmems._consume.call(this, json);
+				result = pmems._digest.call(this, json) && result;
 			}
+			
+			return result;
 		},
 		produce:function (json, purify) {
 			var pmems = this.opriv(guard);
 			
-			if (pmems._interface) {
-				if (purify) {
-					json = vs.clone(json);
-				}
+			if (pmems._superior) {
 				
-				var product = {};
-				product[pmems._alias] = json;
-				pmems._interface.produce(product);
+				var product = this.report(json, purify);
+				
+				pmems._superior.produce(product, false);
 				
 				return true;
 			}
 			
 			return false;
 		},
+		report:function (json, purify) {
+			var pmems = this.opriv(guard);
+			
+			var args = arguments;
+			
+			if (purify) {
+				json = vs.clone(json);
+				args = vs.args(arguments, 1);
+				args.unshift(json);
+			}
+			
+			if (pmems._report) {
+				json = pmems._report.apply(this, args);
+			}
+			
+			return json;
+		},
 	}))
 	.getter("getAlias", "_alias")
-	.getter("getInterface", "_interface")
+	.getter("getSuperior", "_superior")
 	.result();
 	
 	vs.iface(vs.Worker.prototype, properties);
@@ -1214,54 +1330,38 @@ vs.Property = function (guard, result) {
 	
 	var piface = null;
 	
-	vs.Interface = vs.Worker.adapt(guard, {
-			alias:null,
-			open:null,
-			close:null,
-			consume:null,
-		},
-		{
+	vs.Superior = vs.Worker.adapt(guard, {
+		alias:null,
+		init:null,
+		term:null,
+		digest:null,
+		report:null,
+	},
+	{
 		pdefs:{
-			_workers:null,
-			_offQueue:null,
-			_mainQueue:null,
+			_hires:null,
+			_assistant:null,
 		},
 		pfaces:(new vs.Property(guard, {
-			impOpen:function () {
+			impInit:function () {
 				var pmems = this.opriv(guard);
 				
-				for (var alias in pmems._workers) {
-					var worker = pmems._workers[alias];
+				for (var alias in pmems._hires) {
+					var worker = pmems._hires[alias];
 					worker.open.apply(worker, arguments);
 				}
 				
 				return true;
 			},
-			impConsume:function (json) {
-				var pmems = this.opriv(guard);
-				
-				var result = true;
-				
-				for (var alias in json) {
-					var worker = pmems._workers[alias];
-					if (worker) {
-						result = worker.receive(json[alias]) && result;
-					}
-					result = false;
-					vs.assert(0, "unhandled work request", alias, json, pmems._workers, this);
-				}
-				
-				return result;
-			},
-			impClose:function () {
+			impTerm:function () {
 				var pmems = this.opriv(guard);
 				
 				var result = {};
 				
-				var keys = vs.keys(pmems._workers);
+				var keys = vs.keys(pmems._hires);
 				var count = keys.length;
 				
-				// copy the keys because removeWorker may modify pmems._workers (unnecessary safety?)
+				// copy the keys because removeWorker may modify pmems._hires (unnecessary safety?)
 				for (var i = 0; i < count; i++) {
 					var alias = keys[i]
 					var worker = this.removeWorker(alias);
@@ -1269,6 +1369,25 @@ vs.Property = function (guard, result) {
 					if (worker) {
 						result[alias] = worker;
 					}
+				}
+				
+				vs.assert(!pmems._assistant, "leaking on superiors assistant", pmems._assistant, this);
+				
+				return result;
+			},
+			impDigest:function (json) {
+				var pmems = this.opriv(guard);
+				
+				var result = true;
+				
+				for (var alias in json) {
+					var worker = pmems._hires[alias];
+					if (worker) {
+						result = worker.consume(json[alias]) && result;
+						continue;
+					}
+					result = false;
+					vs.assert(0, "unhandled work request", alias, json, pmems._hires, this);
 				}
 				
 				return result;
@@ -1281,40 +1400,44 @@ vs.Property = function (guard, result) {
 			
 			vs.kvproof(
 				config,
-				"alias", vs.keytext.interface,
-				"open", piface.impOpen,
-				"close", piface.impConsume,
-				"consume", piface.impClose
+				"alias", vs.keytext.superior,
+				"init", piface.impInit,
+				"term", piface.impTerm,
+				"digest", piface.impDigest,
+				"report", null
 			);
 			
 			vs.Worker.call(this, config);
 			
 			var pmems = this.opriv(guard);
-			pmems._workers = {};
+			pmems._hires = {};
 		},
 		ongen:null,
 	});
 	
-	piface = vs.papi(guard, vs.Interface);
+	piface = vs.papi(guard, vs.Superior);
 	
 	var properties = (new vs.Property(guard, {
 		addWorker:function (worker) {
 			var pmems = this.opriv(guard);
 			var alias = worker.getAlias();
 			
-			if (pmems._workers[alias] != null) {
-				vs.assert(0, "worker collision on name "+alias, this, worker, pmems._workers);
+			if (pmems._hires[alias] != null) {
+				if (pmems._hires[alias] === worker) {
+					return true;
+				}
+				vs.assert(0, "worker collision on name "+alias, this, worker, pmems._hires);
 				return false;
 			}
 			
 			var omems = worker.opriv(guard);
-			if (omems._interface != null) {
-				vs.assert(0, "worker already has an interface "+omems._interface.alias, this, worker, omems._interface);
+			if (omems._superior != null) {
+				vs.assert(0, "worker already has an superior "+omems._superior.alias, this, worker, omems._superior);
 				return false;
 			}
 			
-			pmems._workers[alias] = worker;
-			omems._interface = this;
+			pmems._hires[alias] = worker;
+			omems._superior = this;
 			worker.open.apply(worker, vs.args(arguments, 1));
 			
 			return true;
@@ -1322,41 +1445,126 @@ vs.Property = function (guard, result) {
 		removeWorker:function (alias) {
 			var pmems = this.opriv(guard);
 			
-			var worker = pmems._workers[alias];
+			var worker = pmems._hires[alias];
 			
 			if (!worker) {
 				return null;
 			}
 			
 			var omems = worker.opriv(guard);
-			if (omems._interface != this) {
+			if (omems._superior != this) {
 				worker.close.apply(worker, vs.args(arguments, 1));
-				omems._interface = null;
+				omems._superior = null;
 			} else {
-				vs.assert(0, "worker has an interface that is not this interface: "+omems._interface.alias, this, worker, omems._interface);
+				vs.assert(0, "worker has an superior that is not this object: "+omems._superior.alias, this, worker, omems._superior);
 			}
 			
-			delete pmems._workers[alias];
+			delete pmems._hires[alias];
+			
+			if (pmems._assistant === worker) {
+				pmems._assistant = null;
+			}
 			
 			return worker;
 		},
-		produce:function (json, purify) {
+		setAssistant:function (helper) {
+			var pmems = this.opriv(guard);
+			if (pmems._assistant) {
+				if (pmems._assistant === helper) {
+					return true;
+				}
+				vs.assert(0, "this superior already has an assistant", helper, pmems._assistant, this);
+				return false;
+			}
 			
-			if (vs.Worker.prototype.produce.call(this, json, purify)) {
+			if (this.addWorker(helper)) {
 				return true;
 			}
 			
+			vs.assert(0, "failed to hire assistant", helper, pmems._hires, this);
+			return false;
+		},
+		escalate:function (json, purify) {
+			var superior = this.getSuperior();
+			if (superior &&
+				this === superior.getProductHelper()) {
+				
+				var product = this.report(json, purify);
+				return superior.escalate(product, false);
+			} else {
+				// potential infinite loop if assistant is itself a Superior but has no assistant itself
+				return vs.Worker.prototype.produce.call(this, json, purify);
+			}
+		},
+		produce:function (json, purify) {
 			var pmems = this.opriv(guard);
-			pmems._mainQueue = pmems.mainQueue || [];
+			var helper = pmems._assistant;
 			
-			if (purify) {
-				json = vs.clone(json);
+			if (!helper) {
+				return this.escalate(json, purify);
 			}
 			
-			pmems._mainQueue.push(json);
-			
-			return true;
+			return helper.produce(json, purify);
 		},
+		brief:function () {
+			return vs.Worker.prototype.report.call(this, json, purify);
+		},
+		report:function (json, purify) {
+			var pmems = this.opriv(guard);
+			var helper = pmems._assistant;
+			
+			if (!helper) {
+				return this.brief();
+			}
+			
+			return helper.report(json, purify);
+		},
+	}))
+	.getter("getAssistant", "_assistant")
+	.result();
+	
+	vs.iface(vs.Superior.prototype, properties);
+})();
+
+	var guard = guard || new vs.Guard();
+	
+(function () {
+	
+	var piface = null;
+	
+	vs.Interface = vs.Superior.adapt(guard, {
+		alias:null,
+		init:null,
+		term:null,
+		digest:null,
+		report:null,
+	},
+	{
+		pdefs:null,
+		pfaces:null,
+		onnew:function (config) {
+			
+			config = config || {};
+			
+			vs.kvproof(
+				config,
+				"alias", null,
+				"init", null,
+				"term", null,
+				"digest", null,
+				"report", null
+			);
+			
+			vs.Superior.call(this, config);
+			
+			var pmems = this.opriv(guard);
+		},
+		ongen:null,
+	});
+	
+	piface = vs.papi(guard, vs.Interface);
+	
+	var properties = (new vs.Property(guard, {
 		handle:function (message) {
 			
 			var json = null;
@@ -1365,7 +1573,19 @@ vs.Property = function (guard, result) {
 				json = JSON.parse(message);
 			} catch (e) {}
 			
-			this.receive(json);
+			this.consume(json);
+		},
+		flush:function () {
+			
+			var json = null;
+			
+			try {
+				json = JSON.stringify(this.report(json, false));
+			} catch (e) {
+				json = "null";
+			}
+			
+			return json;
 		},
 	}))
 	.result();
@@ -1379,33 +1599,172 @@ vs.Property = function (guard, result) {
 	
 	var piface = null;
 	
-	vs.Addresser = vs.Worker.adapt(guard, {
-			alias:null,
-			open:null,
-			close:null,
-			consume:null,
-		},
-		{
+	vs.Gate = vs.Worker.adapt(guard, {
+		alias:null,
+		init:null,
+		term:null,
+		digest:null,
+		report:null,
+	},
+	{
 		pdefs:{
-			_lookup:null,
+			_mainQueue:null,
+			_offQueue:null,
 		},
-		pfaces:null,
+		pfaces:(new vs.Property(guard, {
+			impTerm:function () {
+				var pmems = this.opriv(guard);
+				pmems._mainQueue.splice(0, pmems._mainQueue.length);
+				pmems._offQueue.splice(0, pmems._offQueue.length);
+			},
+			impDigest:function (json) {
+				var pmems = this.opriv(guard);
+				
+				var temp = null;
+				
+				// indicate flush fulfillment to requester
+				this.produce(json);
+				
+				vs.assert(
+					pmems._offQueue.length <= 0, 
+					"unexpected (but not catastrophic) gate flush request when off queue is not empty (investigate why)", 
+					pmems._offQueue, 
+					this
+				);
+				// clear what will become the main queue
+				piface.clear.call(this);
+				
+				temp = pmems._offQueue;
+				pmems._offQueue = pmems._mainQueue;
+				pmems._mainQueue = temp;
+				temp = pmems._offQueue;
+				
+				var superior = this.getSuperior();
+				
+				if (superior) {
+					if (superior.escalate(temp, false)) {
+						// matters were escalated, no longer responsible
+						piface.clear.call(this);
+					}
+				} else {
+					vs.assert(0, "gates should really always have superiors . . . but this one does not", this);
+				}
+				
+				return true;
+			},
+			clear:function () {
+				var pmems = this.opriv(guard);
+				return pmems._offQueue.splice(0, pmems._offQueue.length);
+			},
+		}))
+		.result(),
 		onnew:function (config) {
 			
 			config = config || {};
 			
-			vs.keyproof(
+			vs.kvproof(
 				config,
-				"alias",
-				"open",
-				"close",
-				"consume"
+				"alias", vs.keytext.gate,
+				"init", null,
+				"term", piface.impTerm,
+				"digest", piface.impDigest,
+				"report", null
 			);
 			
 			vs.Worker.call(this, config);
 			
 			var pmems = this.opriv(guard);
-			pmems._lookup = {};
+			pmems._mainQueue = [];
+			pmems._offQueue = [];
+		},
+		ongen:null,
+	});
+	
+	piface = vs.papi(guard, vs.Gate);
+	
+	var properties = (new vs.Property(guard, {
+		produce:function (json, purify) {
+			var pmems = this.opriv(guard);
+			
+			if (purify) {
+				json = vs.clone(json);
+			}
+			
+			pmems._mainQueue.push(json);
+			
+			return true;
+		},
+		report:function (json, purify) {
+			// matters were reported, no longer responsible
+			return piface.clear.call(this);
+		},
+	}))
+	.result();
+	
+	vs.iface(vs.Gate.prototype, properties);
+})();
+
+	var guard = guard || new vs.Guard();
+	
+(function () {
+	
+	var piface = null;
+	
+	vs.Addresser = vs.Worker.adapt(guard, {
+		alias:null,
+		init:null,
+		term:null,
+		digest:null,
+		report:null,
+	},
+	{
+		pdefs:{
+			_registry:null,
+			_dns:null,
+		},
+		pfaces:(new vs.Property(guard, {
+			impTerm:function () {
+				// TODO: . . .
+			},
+			impDigest:function (json) {
+				var pmems = this.opriv(guard);
+				
+				var uuid = json[vs.keytext.uuid];
+				var domain = json[vs.keytext.domain];
+				var task = json[vs.keytext.task];
+				
+				var entity = pmems._registry.whois(domain, uuid);
+				
+				if (!entity) {
+					vs.assert(0, "message unexpectedly sent to unassigned register "+domain+"/"+uuid);
+					return false;
+				}
+				
+				return entity.enact(json, pmems._dns);
+			},
+		}))
+		.result(),
+		onnew:function (config) {
+			
+			config = config || {};
+			
+			vs.assert((config.dns instanceof vs.Addresser.DNS), "addresser needs a valid dns: "+config.dns, config.dns, config, this);
+			vs.assert((config.registry instanceof vs.Addresser.Registry), "addresser needs a valid registry: "+config.registry, config.registry, config, this);
+			
+			vs.kvproof(
+				config,
+				"alias", vs.keytext.addresser,
+				"init", null,
+				"term", piface.impTerm,
+				"digest", piface.impDigest,
+				"report", null
+			);
+			
+			vs.Worker.call(this, config);
+			
+			var pmems = this.opriv(guard);
+			pmems._registry = config.registry;
+			pmems._dns = config.dns;
 		},
 		ongen:null,
 	});
@@ -1416,11 +1775,9 @@ vs.Property = function (guard, result) {
 		whois:function (domain, uuid) {
 			var pmems = this.opriv(guard);
 			
-			if (domain == null) {
-				domain = null;
-			}
+			domain = vs.validDomain(domain);
 			
-			var registry = pmems._lookup[domain] = pmems._lookup[domain] || {};
+			var registry = pmems._registry[domain] = pmems._registry[domain] || {};
 			
 			return registry[uuid];
 		},
@@ -1428,8 +1785,83 @@ vs.Property = function (guard, result) {
 	.result();
 	
 	vs.iface(vs.Addresser.prototype, properties);
+	
 })();
 
+})();
+
+
+
+
+
+(function () {
+
+	vs.Addresser.DNS = function (table) {
+		
+		vs.assert((table instanceof vs.Addresser.Registry), "dns needs a valid registry", table, this);
+		
+		var _registry = table;
+		
+		this.whois = function () {
+			return _registry.whois.apply(_registry, arguments);
+		};
+	}
+	
+	vs.Addresser.Registry = function () {
+		var _records = {};
+		
+		var safeListing = function (domain) {
+			domain = vs.validDomain(domain);
+			
+			return _records[domain] = _records[domain] || {};
+		};
+		
+		this.whois = function (domain, uuid) {
+			var listing = safeListing(domain);
+			
+			return listing[uuid];
+		};
+		
+		this.assign = function (owner, domain, uuid) {
+			if (owner == null) {
+				vs.assert(0, "no valid owner provided for assignment (requests to clear records should invoke revoke() instead)");
+				return false;
+			} else if (!(owner instanceof vs.Entity)) {
+				vs.assert(0, "only valid entities may be assigned", owner);
+				return false;
+			}
+			
+			var listing = safeListing(domain);
+			
+			if (vs.defined(listing[uuid])) {
+				if (listing[uuid] === owner) {
+					return true;
+				}
+				vs.assert(0, "register "+domain+"/"+uuid+" already assigned", listing[uuid], uuid, domain, owner);
+				return false;
+			}
+			
+			listing[uuid] = owner;
+			
+			return true;
+		};
+		
+		this.revoke = function (owner, domain, uuid) {
+			var listing = safeListing(domain);
+			
+			if (!vs.defined(listing[uuid])) {
+				vs.assert(0, "register "+domain+"/"+uuid+" is not assigned", listing, uuid, domain, owner);
+				return false;
+			} else if (listing[uuid] !== owner) {
+				vs.assert(0, "register "+domain+"/"+uuid+" is not assigned to the specified owner", listing[uuid], uuid, domain, owner);
+				return false;
+			}
+			
+			delete listing[uuid];
+			
+			return true;
+		};
+	};
 })();
 
 /* ~ */
@@ -3198,11 +3630,18 @@ duu.build_case( function (closingStatements)  {
 
 (function () {
 	
+	var reg = new vs.Addresser.Registry();
+	
+	var dns = new vs.Addresser.DNS(reg);
+	
 	vs.lookup = vs.Addresser.gen({
+		registry:reg,
+		dns:dns,
 		alias:null,
-		open:null,
-		close:null,
-		consume:null,
+		init:null,
+		term:null,
+		digest:null,
+		report:null,
 	});
 	
 	var domain = null;
@@ -3211,17 +3650,17 @@ duu.build_case( function (closingStatements)  {
 	
 	fabric.setURI("CloseNormal.png");
 	
-	var surface = new vs.Surface.gen(vs.lookup, domain);
+	var scape = new vs.Scape.gen(vs.lookup, domain);
 	
-	surface.run();
+	scape.run();
 	
-	var field = new vs.Field.gen(vs.lookup, domain);
+	var zone = new vs.Zone.gen(vs.lookup, domain);
 	
-	surface.addLeaf(field);
+	scape.addLeaf(zone);
 	
 	var pixie = new vs.Pixie.gen(vs.lookup, domain);
 	
-	field.addLeaf(pixie);
+	zone.addLeaf(pixie);
 	
 	pixie.setLoc(100, 100);
 	
