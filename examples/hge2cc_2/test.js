@@ -245,8 +245,11 @@ vs.keytext.namespace = "";
 vs.keytext.bldn = vs.keytext.namespace + "."; // bottom level domain name
 vs.keytext.port = vs.keytext.namespace + ":";
 vs.keytext.task = vs.keytext.namespace + "()";
+vs.keytext.args = vs.keytext.namespace + "..."; //",";
+
 
 vs.keytext.superior = vs.keytext.namespace + "$";
+vs.keytext.assembler = "&";
 vs.keytext.gate = "#";
 vs.keytext.logger = vs.keytext.namespace + "<<";
 vs.keytext.router = vs.keytext.namespace + "@";
@@ -666,31 +669,10 @@ vs.Property = function (guard, result) {
 /* ~ */
 
 
-
-// init
-// term
-// consume
-// digest
-// report
-
-// Superior
-// assistant (does all the work for the superior)
-// subordinates
-
-// production assistant
-// reporting assistant
-
-
-
-// maybe this.report should be private not public
-
-
 (function () {
-	
-	var emptyf = function () {};
-	
-	var guard = guard || new vs.Guard();
-	
+
+var guard = guard || new vs.Guard();
+
 (function () {
 	
 	var piface = null;
@@ -698,26 +680,10 @@ vs.Property = function (guard, result) {
 	vs.Worker = vs.Target.adapt(guard, {
 		pdefs:{
 			_alias:null,
-			_init:null,
-			_term:null,
 			_digest:null,
-			_report:null,
 			_superior:null,
 		},
 		pfaces:(new vs.Property(guard, {
-			impReport:function (json, purify) {
-				var pmems = this.opriv(guard);
-				
-				if (!pmems._superior) {
-					// no superior, no need to identify who produced the report(?)
-					return json;
-				}
-				
-				var product = {};
-				product[pmems._alias] = json;
-				
-				return product;
-			},
 		}))
 		.result(),
 		onnew:function (config) {
@@ -727,18 +693,12 @@ vs.Property = function (guard, result) {
 			vs.kvproof(
 				config,
 				"alias", "anon",
-				"init", null,
-				"term", null,
-				"digest", null,
-				"report", piface.impReport
+				"digest", null
 			);
 			
 			var pmems = this.opriv(guard);
 			pmems._alias = config.alias;
-			pmems._init = config.init;
-			pmems._term = config.term;
 			pmems._digest = config.digest;
-			pmems._report = config.report;
 		},
 		ongen:null,
 	});
@@ -746,19 +706,7 @@ vs.Property = function (guard, result) {
 	piface = vs.papi(guard, vs.Worker);
 	
 	var properties = (new vs.Property(guard, {
-		init:function () {
-			var pmems = this.opriv(guard);
-			if (!pmems._init) {
-				return;
-			}
-			return pmems._init.apply(this, arguments);
-		},
 		term:function () {
-			var pmems = this.opriv(guard);
-			if (!pmems._term) {
-				return;
-			}
-			return pmems._term.apply(this, arguments);
 		},
 		consume:function (json) {
 			var pmems = this.opriv(guard);
@@ -771,7 +719,9 @@ vs.Property = function (guard, result) {
 			if (json instanceof Array) {
 				var count = json.length;
 				for (var i = 0; i < count; i++) {
-					result = pmems._digest.call(this, json[i]) && result;
+					if (json[i] instanceof Object) {
+						result = pmems._digest.call(this, json[i]) && result;
+					}
 				}
 			} else if (json instanceof Object) {
 				result = pmems._digest.call(this, json) && result;
@@ -784,7 +734,7 @@ vs.Property = function (guard, result) {
 			
 			if (pmems._superior) {
 				
-				var product = this.report(json, purify);
+				var product = this.mark(json, purify);
 				
 				pmems._superior.produce(product, false);
 				
@@ -793,22 +743,20 @@ vs.Property = function (guard, result) {
 			
 			return false;
 		},
-		report:function (json, purify) {
+		mark:function (json, purify) {
 			var pmems = this.opriv(guard);
 			
-			var args = arguments;
-			
-			if (purify) {
-				json = vs.clone(json);
-				args = vs.args(arguments, 1);
-				args.unshift(json);
+			if (!pmems._superior) {
+				// no superior, no need to identify who produced the report(?)
+				return json;
 			}
 			
-			if (pmems._report) {
-				json = pmems._report.apply(this, args);
-			}
+			var result = {};
+			result[pmems._alias] = json;
 			
-			return json;
+			return result;
+		},
+		report:function () {
 		},
 	}))
 	.getter("getAlias", "_alias")
@@ -818,18 +766,13 @@ vs.Property = function (guard, result) {
 	vs.iface(vs.Worker.prototype, properties);
 })();
 
-	var guard = guard || new vs.Guard();
-	
 (function () {
 	
 	var piface = null;
 	
 	vs.Superior = vs.Worker.adapt(guard, {
 		alias:null,
-		init:null,
-		term:null,
 		digest:null,
-		report:null,
 	},
 	{
 		pdefs:{
@@ -837,38 +780,6 @@ vs.Property = function (guard, result) {
 			_assistant:null,
 		},
 		pfaces:(new vs.Property(guard, {
-			impInit:function () {
-				var pmems = this.opriv(guard);
-				
-				for (var alias in pmems._hires) {
-					var worker = pmems._hires[alias];
-					worker.init.apply(worker, arguments);
-				}
-				
-				return true;
-			},
-			impTerm:function () {
-				var pmems = this.opriv(guard);
-				
-				var result = {};
-				
-				var keys = vs.keys(pmems._hires);
-				var count = keys.length;
-				
-				// copy the keys because removeWorker may modify pmems._hires (unnecessary safety?)
-				for (var i = 0; i < count; i++) {
-					var alias = keys[i]
-					var worker = this.removeWorker(alias);
-					
-					if (worker) {
-						result[alias] = worker;
-					}
-				}
-				
-				vs.assert(!pmems._assistant, "leaking on superiors assistant", pmems._assistant, this);
-				
-				return result;
-			},
 			impDigest:function (json) {
 				var pmems = this.opriv(guard);
 				
@@ -895,10 +806,7 @@ vs.Property = function (guard, result) {
 			vs.kvproof(
 				config,
 				"alias", vs.keytext.superior,
-				"init", piface.impInit,
-				"term", piface.impTerm,
-				"digest", piface.impDigest,
-				"report", null
+				"digest", piface.impDigest
 			);
 			
 			vs.Worker.call(this, config);
@@ -912,7 +820,27 @@ vs.Property = function (guard, result) {
 	piface = vs.papi(guard, vs.Superior);
 	
 	var properties = (new vs.Property(guard, {
-		addWorker:function (worker) {
+		term:function () {
+			var pmems = this.opriv(guard);
+			
+			var args = vs.args(arguments);
+			
+			var keys = vs.keys(pmems._hires);
+			var count = keys.length;
+			
+			// copy the keys because loseWorker may modify pmems._hires (unnecessary safety?)
+			for (var i = 0; i < count; i++) {
+				var alias = keys[i]
+				var worker = this.loseWorker(alias);
+				
+				worker.term.apply(worker, args);
+			}
+			
+			vs.assert(!pmems._assistant, "leaking on superiors assistant", pmems._assistant, this);
+			
+			return true;
+		},
+		gainWorker:function (worker) {
 			var pmems = this.opriv(guard);
 			var alias = worker.getAlias();
 			
@@ -932,11 +860,12 @@ vs.Property = function (guard, result) {
 			
 			pmems._hires[alias] = worker;
 			omems._superior = this;
-			worker.init.apply(worker, vs.args(arguments, 1));
+			//worker.init.apply(worker, vs.args(arguments, 1));
 			
 			return true;
 		},
-		removeWorker:function (alias) {
+		loseWorker:function (alias) {
+			// invoker is responsible for calling term() as is appropriate
 			var pmems = this.opriv(guard);
 			
 			var worker = pmems._hires[alias];
@@ -946,22 +875,22 @@ vs.Property = function (guard, result) {
 			}
 			
 			var omems = worker.opriv(guard);
-			if (omems._superior != this) {
-				worker.term.apply(worker, vs.args(arguments, 1));
+			if (omems._superior === this) {
 				omems._superior = null;
 			} else {
 				vs.assert(0, "worker has an superior that is not this object: "+omems._superior.alias, this, worker, omems._superior);
 			}
 			
-			delete pmems._hires[alias];
-			
 			if (pmems._assistant === worker) {
 				pmems._assistant = null;
 			}
 			
+			delete pmems._hires[alias];
+			
+			// invoker is responsible for calling term() as is appropriate
 			return worker;
 		},
-		setAssistant:function (helper) {
+		assignAssistant:function (helper) {
 			var pmems = this.opriv(guard);
 			if (pmems._assistant) {
 				if (pmems._assistant === helper) {
@@ -971,7 +900,10 @@ vs.Property = function (guard, result) {
 				return false;
 			}
 			
-			if (this.addWorker(helper)) {
+			if (helper == null) {
+				pmems._assistant = null;
+				return true;
+			} else if (this.gainWorker(helper)) {
 				pmems._assistant = helper;
 				return true;
 			}
@@ -984,7 +916,7 @@ vs.Property = function (guard, result) {
 			if (superior &&
 				this === superior.getProductHelper()) {
 				
-				var product = this.report(json, purify);
+				var product = this.mark(json, purify);
 				return superior.escalate(product, false);
 			} else {
 				// potential infinite loop if assistant is itself a Superior but has no assistant itself
@@ -1001,8 +933,8 @@ vs.Property = function (guard, result) {
 			
 			return helper.produce(json, purify);
 		},
-		brief:function (json, purify) {
-			return vs.Worker.prototype.report.call(this, json, purify);
+		brief:function () {
+			return vs.Worker.prototype.report.call(this);
 		},
 		report:function (json, purify) {
 			var pmems = this.opriv(guard);
@@ -1012,7 +944,11 @@ vs.Property = function (guard, result) {
 				return this.brief();
 			}
 			
-			return helper.report(json, purify);
+			return helper.report();
+		},
+		getHires:function () {
+			var pmems = this.opriv(guard);
+			return vs.clone(pmems._hires);
 		},
 	}))
 	.getter("getAssistant", "_assistant")
@@ -1021,18 +957,100 @@ vs.Property = function (guard, result) {
 	vs.iface(vs.Superior.prototype, properties);
 })();
 
+})();
+
+
+/* ~ */
+
+
+(function () {
+	
 	var guard = guard || new vs.Guard();
 	
+	var piface = null;
+	
+	vs.Integrator = vs.Worker.adapt(guard, {
+		alias:null,
+		digest:null,
+	},
+	{
+		pdefs:{
+		},
+		pfaces:(new vs.Property(guard, {
+			impDigest:function (json) {
+				return false;
+			}
+		}))
+		.result(),
+		onnew:function (config) {
+			
+			config = config || {};
+			
+			vs.kvproof(
+				config,
+				"alias", vs.keytext.assembler,
+				"digest", piface.impDigest
+			);
+			
+			vs.Worker.call(this, config);
+		},
+		ongen:null,
+	});
+	
+	piface = vs.papi(guard, vs.Integrator);
+	
+	var properties = (new vs.Property(guard, {
+		produce:function (json, purify) {
+			var superior = this.getSuperior();
+			return superior.escalate(json, purify);
+		},
+		report:function (json, purify) {
+			var superior = this.getSuperior();
+			var coworkers = superiors.getHires();
+			
+			var result = [];
+			
+			for (var alias in coworkers) {
+				var worker = coworkers[alias];
+				
+				if (this === worker) {
+					continue;
+				}
+				
+				var issue = worker.report();
+				
+				if (issue instanceof Array) {
+					var count = issue.length;
+					for (var i = 0; i < count; i++) {
+						result.push(issue[i]);
+					}
+				} else if (issue instanceof Object) {
+					result.push();
+				}
+			}
+			
+			return superior.mark(result, false);
+		},
+	}))
+	.result();
+	
+	vs.iface(vs.Integrator.prototype, properties);
+})();
+
+
+
+/* ~ */
+
+
 (function () {
+	
+	var guard = guard || new vs.Guard();
 	
 	var piface = null;
 	
 	vs.Gate = vs.Worker.adapt(guard, {
 		alias:null,
-		init:null,
-		term:null,
 		digest:null,
-		report:null,
 	},
 	{
 		pdefs:{
@@ -1040,18 +1058,13 @@ vs.Property = function (guard, result) {
 			_offQueue:null,
 		},
 		pfaces:(new vs.Property(guard, {
-			impTerm:function () {
-				var pmems = this.opriv(guard);
-				pmems._mainQueue.splice(0, pmems._mainQueue.length);
-				pmems._offQueue.splice(0, pmems._offQueue.length);
-			},
 			impDigest:function (json) {
 				var pmems = this.opriv(guard);
 				
 				var temp = null;
 				
 				// indicate flush fulfillment to requester
-				this.produce(vs.Worker.prototype.report.apply(this, arguments));
+				this.produce(this.mark.apply(this, arguments));
 				
 				vs.assert(
 					pmems._offQueue.length <= 0, 
@@ -1093,10 +1106,7 @@ vs.Property = function (guard, result) {
 			vs.kvproof(
 				config,
 				"alias", vs.keytext.gate,
-				"init", null,
-				"term", piface.impTerm,
-				"digest", piface.impDigest,
-				"report", null
+				"digest", piface.impDigest
 			);
 			
 			vs.Worker.call(this, config);
@@ -1111,6 +1121,11 @@ vs.Property = function (guard, result) {
 	piface = vs.papi(guard, vs.Gate);
 	
 	var properties = (new vs.Property(guard, {
+		term:function () {
+			var pmems = this.opriv(guard);
+			pmems._mainQueue.splice(0, pmems._mainQueue.length);
+			pmems._offQueue.splice(0, pmems._offQueue.length);
+		},
 		produce:function (json, purify) {
 			var pmems = this.opriv(guard);
 			
@@ -1125,7 +1140,7 @@ vs.Property = function (guard, result) {
 		report:function (json, purify) {
 			var superior = this.getSuperior();
 			// matters were reported, no longer responsible
-			return superior.brief(piface.clear.call(this));
+			return superior.mark(piface.clear.call(this), false);
 		},
 	}))
 	.result();
@@ -1133,18 +1148,22 @@ vs.Property = function (guard, result) {
 	vs.iface(vs.Gate.prototype, properties);
 })();
 
-	var guard = guard || new vs.Guard();
-	
+
+
+/* ~ */
+
+
 (function () {
+
+(function () {
+	
+	var guard = guard || new vs.Guard();
 	
 	var piface = null;
 	
 	vs.Router = vs.Worker.adapt(guard, {
 		alias:null,
-		init:null,
-		term:null,
-		digest:null,
-		report:null,
+		digest:null
 	},
 	{
 		pdefs:{
@@ -1152,9 +1171,6 @@ vs.Property = function (guard, result) {
 			_bdns:null,
 		},
 		pfaces:(new vs.Property(guard, {
-			impTerm:function () {
-				// TODO: . . .
-			},
 			impDigest:function (json) {
 				var pmems = this.opriv(guard);
 				
@@ -1183,10 +1199,7 @@ vs.Property = function (guard, result) {
 			vs.kvproof(
 				config,
 				"alias", vs.keytext.router,
-				"init", null,
-				"term", piface.impTerm,
-				"digest", piface.impDigest,
-				"report", null
+				"digest", piface.impDigest
 			);
 			
 			vs.Worker.call(this, config);
@@ -1200,17 +1213,20 @@ vs.Property = function (guard, result) {
 	
 	piface = vs.papi(guard, vs.Router);
 	
-	var properties = (new vs.Property(guard))
+	var properties = (new vs.Property(guard, {
+		term:function () {
+			var pmems = this.opriv(guard);
+			delete pmems._table;
+			delete pmems._bdns;
+			pmems._table = null;
+			pmems._bdns = null;
+			return true;
+		},
+	}))
 	.result();
 	
 	vs.iface(vs.Router.prototype, properties);
 })();
-
-})();
-
-
-
-
 
 (function () {
 
@@ -1255,7 +1271,7 @@ vs.Property = function (guard, result) {
 				if (listing[port] === owner) {
 					return true;
 				}
-				vs.assert(0, "register ."+bldn+":"+port+" already assigned", listing[port], port, bldn, owner);
+				vs.assert(0, "register ."+bldn+":"+port+" is already assigned", listing[port], port, bldn, owner);
 				return false;
 			}
 			
@@ -1271,7 +1287,7 @@ vs.Property = function (guard, result) {
 				vs.assert(0, "register ."+bldn+":"+port+" is not assigned", listing, port, bldn, owner);
 				return false;
 			} else if (listing[port] !== owner) {
-				vs.assert(0, "register ."+bldn+":"+port+" is not assigned to the specified owner", listing[port], port, bldn, owner);
+				vs.assert(0, "register ."+bldn+":"+port+" is not assigned to the suggested owner", listing[port], port, bldn, owner);
 				return false;
 			}
 			
@@ -1281,13 +1297,22 @@ vs.Property = function (guard, result) {
 		};
 	};
 	
-	vs.Interface = function () {
+})();
+
+})();
+
+
+/* ~ */
+
+
+(function () {
+	vs.API = function () {
 	};
 	
-	vs.Interface.prototype.handle = function (message) {};
-	vs.Interface.prototype.flush = function () {};
+	vs.API.prototype.handle = function (message) {};
+	vs.API.prototype.flush = function () {};
 	
-	vs.Interface.Worker = function (chief) {
+	vs.API.WorkerInterface = function (chief) {
 		vs.assert((chief instanceof vs.Worker), "worker interface needs a valid worker", chief, this);
 		var _boss = chief;
 		
@@ -1316,10 +1341,10 @@ vs.Property = function (guard, result) {
 		};
 	};
 	
-	vs.Interface.Worker.prototype = new vs.Interface();
+	vs.API.WorkerInterface.prototype = new vs.API();
 	
 	vs.Terminal = function (api) {
-		vs.assert((api instanceof vs.Interface), "terminal needs a valid interface", api, this);
+		vs.assert((api instanceof vs.API), "terminal needs a valid interface", api, this);
 		var _interface = api;
 		var _mainQueue = [];
 		var _offQueue = [];
@@ -1330,14 +1355,18 @@ vs.Property = function (guard, result) {
 			
 			var temp;
 			
-			temp = _offqueue;
+			vs.assert(_offQueue.length == 0, "off queue was not emptied... requests are probably stacking up!");
+			
+			temp = _offQueue;
 			_offQueue = _mainQueue;
 			_mainQueue = temp;
-			temp = _offqueue;
+			temp = _offQueue;
 			
 			_pending = false;
 			
 			var count = temp.length;
+			
+			temp = temp.splice(0, count);
 			
 			for (var i = 0; i < count; i++) {
 				_interface.handle(temp[i]);
@@ -1358,6 +1387,7 @@ vs.Property = function (guard, result) {
 		};
 	};
 })();
+
 
 
 /* ~ */
@@ -1939,18 +1969,12 @@ vs.geom.rgb.eq = function () {
 	
 	var superior = new vs.Superior({
 		alias:null,
-		init:null,
-		term:null,
 		digest:null,
-		report:null,
 	});
 	
 	var gate = new vs.Gate({
 		alias:null,
-		init:null,
-		term:null,
 		digest:null,
-		report:null,
 	});
 	
 	var table = new vs.Router.Table();
@@ -1961,17 +1985,14 @@ vs.geom.rgb.eq = function () {
 		table:table,
 		bdns:bdns,
 		alias:null,
-		init:null,
-		term:null,
 		digest:null,
-		report:null,
 	});
 	
-	superior.setAssistant(gate);
+	superior.assignAssistant(gate);
 	
-	superior.addWorker(lookup);
+	superior.gainWorker(lookup);
 	
-	var api = new vs.Interface.Worker(superior);
+	var api = new vs.API.WorkerInterface(superior);
 	
 	hge.terminal = new vs.Terminal(api);
 	
@@ -1996,6 +2017,8 @@ vs.geom.rgb.eq = function () {
 	pixie.setLoc(100, 100);
 	
 	pixie.setFabric(fabric);
+	
+	gate.consume({}); // open gate (will loop infinitely and unmitigated at present)
 	
 //})();
 
