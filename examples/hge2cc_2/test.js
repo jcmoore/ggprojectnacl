@@ -76,6 +76,15 @@ vs.logo = function (level, msg) {
 /* ~ */
 
 
+vs.round = function (num, precision) {
+	precision = precision || 0;
+	precision = Math.pow(10, precision);
+	return Math.round(num * precision) / precision;
+}; 
+
+/* ~ */
+
+
 vs.now = function () {
 	return Date.now();
 };
@@ -1056,24 +1065,38 @@ var guard = guard || new vs.Guard();
 		pdefs:{
 			_mainQueue:null,
 			_offQueue:null,
+			_time:null,
 		},
 		pfaces:(new vs.Property(guard, {
 			impDigest:function (json) {
 				var pmems = this.opriv(guard);
+				
+				if (json.opentime == null) {
+					return;
+				}
+				
+				if (pmems._time != null &&
+					pmems._time >= json.opentime) {
+					return;
+				}
+				
+				pmems._time = json.opentime;
 				
 				var temp = null;
 				
 				// indicate flush fulfillment to requester
 				this.produce(this.mark.apply(this, arguments));
 				
-				vs.assert(
-					pmems._offQueue.length <= 0, 
-					"unexpected (but not catastrophic) gate flush request when off queue is not empty (investigate why)", 
-					pmems._offQueue, 
-					this
-				);
+				//vs.assert(
+				//	pmems._offQueue.length <= 0, 
+				//	"unexpected (but not catastrophic) gate flush request when off queue is not empty (investigate why)", 
+				//	pmems._offQueue, 
+				//	this
+				//);
 				// clear what will become the main queue
-				piface.clear.call(this);
+				if (pmems._offQueue.length > 0) {
+					piface.clear.call(this);
+				}
 				
 				temp = pmems._offQueue;
 				pmems._offQueue = pmems._mainQueue;
@@ -1343,13 +1366,15 @@ var guard = guard || new vs.Guard();
 	
 	vs.API.WorkerInterface.prototype = new vs.API();
 	
-	vs.Terminal = function (api) {
+	vs.Terminal = function (api, notify) {
 		vs.assert((api instanceof vs.API), "terminal needs a valid interface", api, this);
 		var _interface = api;
 		var _mainQueue = [];
 		var _offQueue = [];
 		
 		var _pending = false;
+		
+		var terminal = this;
 		
 		var _execute = function () {
 			
@@ -1371,9 +1396,22 @@ var guard = guard || new vs.Guard();
 			for (var i = 0; i < count; i++) {
 				_interface.handle(temp[i]);
 			}
+			
+			if (terminal.notify instanceof Function ) {
+				terminal.notify();
+			}
 		};
 		
+		this.notify = notify;
+		
 		this.bridgeOutput = function (message) {
+			if (vs.emptied(message)) {
+				
+				if (terminal.notify instanceof Function ) {
+					terminal.notify();
+				}
+				return;
+			}
 			_mainQueue.push(message);
 			if (!_pending) {
 				_pending = true;
@@ -1885,6 +1923,74 @@ vs.geom.rgb.eq = function () {
 	
 	var piface = null;
 	
+	vs.Troop = vs.Nexus.adapt(guard, {
+		pdefs:{
+			_fabric:null,
+		},
+		pfaces:null,
+		onnew:function (lookup, bldn, fabric, box) {
+			vs.Nexus.call(this, lookup, bldn);
+			
+			var pmems = this.opriv(guard);
+			pmems._fabric = fabric;
+		},
+		ongen:function () {
+			var task = {
+				root:this.getRoot(),
+				loc:this.getLoc(),
+				magn:this.getMagn(),
+				ele:this.getEle(),
+				ori:this.getOri(),
+				code:this.getCode(),
+			};
+			
+			var fabric = this.getFabric();
+			
+			if (fabric instanceof vs.Fabric) {
+				task["fabricId"] = fabric.ouuid();
+				
+				if (pmems._fabric.odname()) {
+					result["fabricDn"] = fabric.odname();
+				}
+			}
+			
+			this.task("Troop", task);
+		},
+	});
+	
+	piface = vs.papi(guard, vs.Troop);
+	
+	var properties = (new vs.Property(guard,
+	{
+	}))
+	.getter("getFabric", "_fabric")
+	.setter("setFabric", "_fabric", function (value, previous) {
+		if (value != previous) {
+			var task = {
+				fabricId:(value ? value.ouuid() : 0),
+			};
+			
+			if (value.odname()) {
+				result["fabricDn"] = value.odname();
+			}
+			
+			this.task("setFabric", task);
+		}
+	})
+	.result();
+	
+	vs.iface(vs.Troop.prototype, properties);
+})();
+
+
+/* ~ */
+
+
+(function () {
+	var guard = new vs.Guard();
+	
+	var piface = null;
+	
 	vs.Scape = vs.Nexus.adapt(guard, {
 		pdefs:null,
 		pfaces:null,
@@ -1963,66 +2069,10 @@ vs.geom.rgb.eq = function () {
 /* ~ */
 
 
-//(function () {
-	
-	window.hge = window.hge || {};
-	
-	var superior = new vs.Superior({
-		alias:null,
-		digest:null,
-	});
-	
-	var gate = new vs.Gate({
-		alias:null,
-		digest:null,
-	});
-	
-	var table = new vs.Router.Table();
-	
-	var bdns = new vs.Router.BDNS(table);
-	
-	var lookup = vs.Router.gen({
-		table:table,
-		bdns:bdns,
-		alias:null,
-		digest:null,
-	});
-	
-	superior.assignAssistant(gate);
-	
-	superior.gainWorker(lookup);
-	
-	var api = new vs.API.WorkerInterface(superior);
-	
-	hge.terminal = new vs.Terminal(api);
-	
-	var bldn = null;
-	
-	var fabric = vs.Fabric.gen(lookup, bldn);
-	
-	fabric.setURI("CloseNormal.png");
-	
-	var scape = new vs.Scape.gen(lookup, bldn);
-	
-	scape.run();
-	
-	var zone = new vs.Zone.gen(lookup, bldn);
-	
-	scape.addLeaf(zone);
-	
-	var pixie = new vs.Pixie.gen(lookup, bldn);
-	
-	zone.addLeaf(pixie);
-	
-	pixie.setLoc(100, 100);
-	
-	pixie.setFabric(fabric);
-	
-	gate.consume({}); // open gate (will loop infinitely and unmitigated at present)
-	
-//})();
+
 
 
 /* ~ */
+
 
 

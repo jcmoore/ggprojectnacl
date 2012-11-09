@@ -49,7 +49,7 @@ bool PepperInstance::Init(uint32_t /* argc */, const char* /* argn */[], const c
 	if (!hybridge::HGERunLoop::sharedRunLoop()) {
 		new RunLoopDelegate(this);
 		assert(hybridge::HGERunLoop::sharedRunLoop());
-		hybridge::HGERunLoop::sharedRunLoop()->startApp("/hge2cc_0/Resources.zip");
+		hybridge::HGERunLoop::sharedRunLoop()->startApp("/hge2cc_1/Resources.zip");
 	}
 	return true;
 }

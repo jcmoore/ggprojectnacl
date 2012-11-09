@@ -16,6 +16,8 @@ public:
 	RunLoopDelegate(pp::Instance* instance);
 	~RunLoopDelegate();
 	
+	virtual hybridge::HGEAPI * attach(void * client);
+	
 	virtual void begin();
 	
 	virtual void update();
