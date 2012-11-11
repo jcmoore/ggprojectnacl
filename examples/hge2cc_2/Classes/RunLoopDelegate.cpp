@@ -24,8 +24,8 @@
 #include "graphics/HGECCFabric.h"
 #include "graphics/HGECCNexus.h"
 #include "graphics/HGECCPixie.h"
-#include "graphics/HGECCField.h"
-#include "graphics/HGECCSurface.h"
+#include "graphics/HGECCZone.h"
+#include "graphics/HGECCScape.h"
 #include "graphics/HGECCTroop.h"
 
 NS_HGE_BEGIN
@@ -45,43 +45,43 @@ public:
 		HGECanImp<>::Magic<> * concrete = 0;
 		if (!type) {
 		} else if (0 == strcmp(type, "Pixie")) {
-			HGECCPixie * obj = new HGECCPixie(dns, router);
-			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete)) {
+			HGECCPixie * obj = new HGECCPixie(router, dns);
+			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete, 0)) {
 				result = static_cast< HGECanRout<>::Magic * >(concrete);
 			} else {
 				HGEDelete(obj);
 			}
 		} else if (0 == strcmp(type, "Nexus")) {
-			HGECCNexus * obj = new HGECCNexus(dns, router);
-			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete)) {
+			HGECCNexus * obj = new HGECCNexus(router, dns);
+			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete, 0)) {
 				result = static_cast< HGECanRout<>::Magic * >(concrete);
 			} else {
 				HGEDelete(obj);
 			}
-		} else if (0 == strcmp(type, "Field")) {
-			HGECCField * obj = new HGECCField(dns, router);
-			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete)) {
+		} else if (0 == strcmp(type, "Zone")) {
+			HGECCZone * obj = new HGECCZone(bldn, port, router, dns);
+			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete, 0)) {
 				result = static_cast< HGECanRout<>::Magic * >(concrete);
 			} else {
 				HGEDelete(obj);
 			}
-		} else if (0 == strcmp(type, "Surface")) {
-			HGECCSurface * obj = new HGECCSurface(dns, router);
-			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete)) {
+		} else if (0 == strcmp(type, "Scape")) {
+			HGECCScape * obj = new HGECCScape(router, dns);
+			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete, 0)) {
 				result = static_cast< HGECanRout<>::Magic * >(concrete);
 			} else {
 				HGEDelete(obj);
 			}
 		} else if (0 == strcmp(type, "Fabric")) {
-			HGECCFabric * obj = new HGECCFabric(router);
-			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete)) {
+			HGECCFabric * obj = new HGECCFabric(bldn, port, router);
+			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete, 0)) {
 				result = static_cast< HGECanRout<>::Magic * >(concrete);
 			} else {
 				HGEDelete(obj);
 			}
 		} else if (0 == strcmp(type, "Troop")) {
-			HGECCTroop * obj = new HGECCTroop(dns, router);
-			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete)) {
+			HGECCTroop * obj = new HGECCTroop(router, dns);
+			if (obj->canYou(HGE_LIKEA(HGECanRout), &concrete, 0)) {
 				result = static_cast< HGECanRout<>::Magic * >(concrete);
 			} else {
 				HGEDelete(obj);
@@ -127,7 +127,9 @@ HGEAPI * RunLoopDelegate::attach(void * client) {
 	
 	HGESuperior * superior = new HGESuperior(HGE_KEYTEXT_SERVICE_SUPERIOR);
 	
-	HGEGate * gate = new HGEGate(HGE_KEYTEXT_SERVICE_GATE);
+	bool doubleBuffered = false;
+	
+	HGEGate * gate = new HGEGate(HGE_KEYTEXT_SERVICE_GATE, doubleBuffered);
 	
 	HGERouter::TableInterface * table = new HGERouter::Table();
 	

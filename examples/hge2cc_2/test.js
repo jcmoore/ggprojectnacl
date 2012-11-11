@@ -279,17 +279,26 @@ frames[frames.length - 1].document.write(
 	"<script>"+
 	"parent.guardApply=Function.prototype.apply;"+
 	"parent.guardCall=Function.prototype.call;"+
-	"parent.guardCall=Array.prototype.slice;"+
+	"parent.guardSlice=Array.prototype.slice;"+
+	"parent.guardObject=Object;"+
+	"parent.guardArray=Array;"+
+	"parent.guardFunction=Function;"+
 	"<\/script>"
 );
 
 var apply$ = window.guardApply;
 var call$ = window.guardCall;
 var slice$ = window.guardSlice;
+var object$ = window.guardObject;
+var array$ = window.guardArray;
+var function$ = window.guardFunction;
 
 delete window.guardApply;
 delete window.guardCall;
 delete window.guardSlice;
+delete window.guardObject;
+delete window.guardArray;
+delete window.guardFunction;
 
 var safe$ = function (func) {
 	func.apply = apply$;
@@ -645,7 +654,6 @@ vs.Property = function (guard, result) {
 	var properties = (new vs.Property(guard,
 	{
 		enact:function (json, dns) {
-			vs.assert(0, "we did it? "+JSON.stringify(json), this);
 			return true;
 		},
 		task:function (tag, result) {
@@ -1060,6 +1068,7 @@ var guard = guard || new vs.Guard();
 	vs.Gate = vs.Worker.adapt(guard, {
 		alias:null,
 		digest:null,
+		doubleBuffered:true,
 	},
 	{
 		pdefs:{
@@ -1071,13 +1080,26 @@ var guard = guard || new vs.Guard();
 			impDigest:function (json) {
 				var pmems = this.opriv(guard);
 				
+				var taskKey = vs.keytext.task;
+				var argsKey = vs.keytext.args;
+				
+				if (json[taskKey] == "doubleBuffer") {
+					
+					var param = json[argsKey] ? true : false;
+					
+					this.setDoubleBuffered(param);
+					return true;
+				} else if (json[taskKey] != "flood") {
+					return true;
+				}
+				
 				if (json.opentime == null) {
-					return;
+					return false;
 				}
 				
 				if (pmems._time != null &&
 					pmems._time >= json.opentime) {
-					return;
+					return false;
 				}
 				
 				pmems._time = json.opentime;
@@ -1087,16 +1109,18 @@ var guard = guard || new vs.Guard();
 				// indicate flush fulfillment to requester
 				this.produce(this.mark.apply(this, arguments));
 				
-				//vs.assert(
-				//	pmems._offQueue.length <= 0, 
-				//	"unexpected (but not catastrophic) gate flush request when off queue is not empty (investigate why)", 
-				//	pmems._offQueue, 
-				//	this
-				//);
-				// clear what will become the main queue
-				if (pmems._offQueue.length > 0) {
-					piface.clear.call(this);
+				if (!pmems._doubleBuffered) {
+					return true;
 				}
+				
+				vs.assert(
+					pmems._offQueue.length <= 0, 
+					"unexpected (but not catastrophic) gate flush request when off queue is not empty (investigate why)", 
+					pmems._offQueue, 
+					this
+				);
+				// clear what will become the main queue
+				piface.clear.call(this);
 				
 				temp = pmems._offQueue;
 				pmems._offQueue = pmems._mainQueue;
@@ -1118,7 +1142,11 @@ var guard = guard || new vs.Guard();
 			},
 			clear:function () {
 				var pmems = this.opriv(guard);
-				return pmems._offQueue.splice(0, pmems._offQueue.length);
+				if (pmems._doubleBuffered) {
+					return pmems._offQueue.splice(0, pmems._offQueue.length);
+				} else {
+					return pmems._mainQueue.splice(0, pmems._mainQueue.length);
+				}
 			},
 		}))
 		.result(),
@@ -1126,10 +1154,12 @@ var guard = guard || new vs.Guard();
 			
 			config = config || {};
 			
+			
 			vs.kvproof(
 				config,
 				"alias", vs.keytext.gate,
-				"digest", piface.impDigest
+				"digest", piface.impDigest,
+				"doubleBuffered", null
 			);
 			
 			vs.Worker.call(this, config);
@@ -1137,6 +1167,7 @@ var guard = guard || new vs.Guard();
 			var pmems = this.opriv(guard);
 			pmems._mainQueue = [];
 			pmems._offQueue = [];
+			pmems._doubleBuffered = config.doubleBuffered || pmems._doubleBuffered;
 		},
 		ongen:null,
 	});
@@ -1166,6 +1197,19 @@ var guard = guard || new vs.Guard();
 			return superior.mark(piface.clear.call(this), false);
 		},
 	}))
+	.getter("getDoubleBuffered", "_doubleBuffered")
+	.setter("setDoubleBuffered", "_doubleBuffered", function (value, previous) {
+		if (value != previous) {
+			var pmems = this.opriv(guard);
+			if (!value) { // no longer doubleBuffered
+				var buffered = pmems._offQueue.splice(0, pmems._offQueue.length);
+				if (buffered.length > 0) {
+					buffered.unshift(0, 0);
+					pmems._mainQueue.splice.apply(pmems._mainQueue, buffered);
+				}
+			}
+		}
+	})
 	.result();
 	
 	vs.iface(vs.Gate.prototype, properties);
@@ -1264,6 +1308,21 @@ var guard = guard || new vs.Guard();
 		};
 	}
 	
+	vs.Router.Switchboard = function (t) {
+		
+		vs.assert((t instanceof vs.Router.Table), "bdns needs a valid table", t, this);
+		
+		var _table = t;
+		
+		this.assign = function () {
+			return _table.assign.apply(_table, arguments);
+		};
+		
+		this.revoke = function () {
+			return _table.revoke.apply(_table, arguments);
+		};
+	};
+	
 	vs.Router.Table = function () {
 		var _records = {};
 		
@@ -1335,9 +1394,11 @@ var guard = guard || new vs.Guard();
 	vs.API.prototype.handle = function (message) {};
 	vs.API.prototype.flush = function () {};
 	
-	vs.API.WorkerInterface = function (chief) {
+	vs.API.WorkerInterface = function (chief, notify) {
 		vs.assert((chief instanceof vs.Worker), "worker interface needs a valid worker", chief, this);
 		var _boss = chief;
+		
+		this.notify = notify;
 		
 		this.handle = function (message) {
 			
@@ -1348,6 +1409,10 @@ var guard = guard || new vs.Guard();
 			} catch (e) {}
 			
 			_boss.consume(json);
+			
+			if (this.notify instanceof Function ) {
+				this.notify();
+			}
 		};
 		
 		this.flush = function () {
@@ -1366,15 +1431,15 @@ var guard = guard || new vs.Guard();
 	
 	vs.API.WorkerInterface.prototype = new vs.API();
 	
-	vs.Terminal = function (api, notify) {
+	vs.Terminal = function (api, synchronous) {
 		vs.assert((api instanceof vs.API), "terminal needs a valid interface", api, this);
 		var _interface = api;
 		var _mainQueue = [];
 		var _offQueue = [];
 		
-		var _pending = false;
+		this.synchronous = synchronous;
 		
-		var terminal = this;
+		var _pending = false;
 		
 		var _execute = function () {
 			
@@ -1396,27 +1461,18 @@ var guard = guard || new vs.Guard();
 			for (var i = 0; i < count; i++) {
 				_interface.handle(temp[i]);
 			}
-			
-			if (terminal.notify instanceof Function ) {
-				terminal.notify();
-			}
 		};
 		
-		this.notify = notify;
-		
 		this.bridgeOutput = function (message) {
-			if (vs.emptied(message)) {
-				
-				if (terminal.notify instanceof Function ) {
-					terminal.notify();
-				}
-				return;
-			}
 			_mainQueue.push(message);
 			if (!_pending) {
 				_pending = true;
-				// NOTE: has to return immediately!
-				vs.delay(_execute);
+				if (!this.synchronous) {
+					// NOTE: has to return immediately!
+					vs.delay(_execute);
+				} else {
+					_execute();
+				}
 			}
 		};
 		
@@ -1501,6 +1557,20 @@ vs.geom.rgb.eq = function () {
 /* ~ */
 
 
+vs.input = {};
+
+
+
+vs.input.TouchFlag = {};
+vs.input.TouchFlag.BEGAN = 1;
+vs.input.TouchFlag.MOVED = 0;
+vs.input.TouchFlag.ENDED = -1;
+vs.input.TouchFlag.CANCELLED = null;
+
+
+/* ~ */
+
+
 (function () {
 	var guard = new vs.Guard();
 	
@@ -1522,13 +1592,17 @@ vs.geom.rgb.eq = function () {
 			},
 		}))
 		.result(),
-		onnew:function (lookup, bldn, filepath) {
+		onnew:function (lookup, bldn, filepath, switchboard) {
 			vs.Entity.call(this, lookup, bldn);
 			
 			var pmems = this.opriv(guard);
 			pmems._uri = filepath || "";
 		},
-		ongen:function () {
+		ongen:function (lookup, bldn, filepath, switchboard) {
+			if (switchboard) {
+				switchboard.assign(this, this.odname(), this.ouuid());
+			}
+			
 			this.task("Fabric", {
 				uri:this.getURI(),
 				//width:this.getWidth(),
@@ -1623,7 +1697,7 @@ vs.geom.rgb.eq = function () {
 		}))
 		.setter("setBranch", "_branch")
 		.result(),
-		onnew:function (lookup, bldn) {
+		onnew:function (lookup, bldn, switchboard) {
 			vs.Entity.call(this, lookup, bldn);
 			
 			var pmems = this.opriv(guard);
@@ -1631,7 +1705,11 @@ vs.geom.rgb.eq = function () {
 			pmems._loc = vs.geom.p(0, 0);
 			pmems._magn = vs.geom.p(1, 1);
 		},
-		ongen:function () {
+		ongen:function (lookup, bldn, switchboard) {
+			if (switchboard) {
+				switchboard.assign(this, this.odname(), this.ouuid());
+			}
+			
 			this.task("Nexus", {
 				root:this.getRoot(),
 				loc:this.getLoc(),
@@ -1767,7 +1845,7 @@ vs.geom.rgb.eq = function () {
 			_fabric:null,
 		},
 		pfaces:null,
-		onnew:function (lookup, bldn, fabric, box) {
+		onnew:function (lookup, bldn, fabric, box, switchboard) {
 			vs.Nexus.call(this, lookup, bldn);
 			
 			var pmems = this.opriv(guard);
@@ -1783,7 +1861,11 @@ vs.geom.rgb.eq = function () {
 				pmems._box = vs.geom.rect(0, 0, 0, 0);
 			}
 		},
-		ongen:function () {
+		ongen:function (lookup, bldn, fabric, box, switchboard) {
+			if (switchboard) {
+				switchboard.assign(this, this.odname(), this.ouuid());
+			}
+			
 			var task = {
 				box:this.getBox(),
 				pigment:this.getPigment(),
@@ -1928,13 +2010,17 @@ vs.geom.rgb.eq = function () {
 			_fabric:null,
 		},
 		pfaces:null,
-		onnew:function (lookup, bldn, fabric, box) {
+		onnew:function (lookup, bldn, fabric, switchboard) {
 			vs.Nexus.call(this, lookup, bldn);
 			
 			var pmems = this.opriv(guard);
 			pmems._fabric = fabric;
 		},
-		ongen:function () {
+		ongen:function (lookup, bldn, fabric, switchboard) {
+			if (switchboard) {
+				switchboard.assign(this, this.odname(), this.ouuid());
+			}
+			
 			var task = {
 				root:this.getRoot(),
 				loc:this.getLoc(),
@@ -1994,12 +2080,16 @@ vs.geom.rgb.eq = function () {
 	vs.Scape = vs.Nexus.adapt(guard, {
 		pdefs:null,
 		pfaces:null,
-		onnew:function (lookup, bldn) {
+		onnew:function (lookup, bldn, switchboard) {
 			vs.Nexus.call(this, lookup, bldn, true);
 			
 			var pmems = this.opriv(guard);
 		},
-		ongen:function () {
+		ongen:function (lookup, bldn, switchboard) {
+			if (switchboard) {
+				switchboard.assign(this, this.odname(), this.ouuid());
+			}
+			
 			var task = {
 				root:this.getRoot(),
 				loc:this.getLoc(),
@@ -2009,7 +2099,7 @@ vs.geom.rgb.eq = function () {
 				code:this.getCode(),
 			};
 			
-			this.task("Surface", task);
+			this.task("Scape", task);
 		},
 	});
 	
@@ -2036,14 +2126,21 @@ vs.geom.rgb.eq = function () {
 	var piface = null;
 	
 	vs.Zone = vs.Nexus.adapt(guard, {
-		pdefs:null,
+		pdefs:{
+			_inputHandler:null,
+		},
 		pfaces:null,
-		onnew:function (lookup, bldn) {
+		onnew:function (lookup, bldn, inputHandler, switchboard) {
 			vs.Nexus.call(this, lookup, bldn);
 			
 			var pmems = this.opriv(guard);
+			pmems._inputHandler = inputHandler || null;
 		},
-		ongen:function () {
+		ongen:function (lookup, bldn, inputHandler, switchboard) {
+			if (switchboard) {
+				switchboard.assign(this, this.odname(), this.ouuid());
+			}
+			
 			var task = {
 				root:this.getRoot(),
 				loc:this.getLoc(),
@@ -2053,13 +2150,38 @@ vs.geom.rgb.eq = function () {
 				code:this.getCode(),
 			};
 			
-			this.task("Field", task);
+			this.task("Zone", task);
 		},
 	});
 	
 	piface = vs.papi(guard, vs.Zone);
 	
-	var properties = (new vs.Property(guard))
+	var properties = (new vs.Property(guard, {
+		enact:function (json, dns) {
+			var pmems = this.opriv(guard);
+			
+			var taskKey = vs.keytext.task;
+			var argsKey = vs.keytext.args;
+			
+			if (json[taskKey] == "input") {
+				if (!(pmems._inputHandler instanceof Function)) {
+					return true;
+				}
+				
+				var params = json[argsKey];
+				
+				if (params instanceof Array) {
+					var count = params.length;
+					for (var i = 0; i < count; i++) {
+						pmems._inputHandler(params[i], this);
+					}
+				} else {
+					pmems._inputHandler(params, this);
+				}
+			}
+			return true;
+		},
+	}))
 	.result();
 	
 	vs.iface(vs.Zone.prototype, properties);
@@ -2071,8 +2193,6 @@ vs.geom.rgb.eq = function () {
 
 
 
-
 /* ~ */
-
 
 

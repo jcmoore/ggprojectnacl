@@ -69,60 +69,77 @@ var xbridge = xbridge || {};
 	};
 	
 	runit = (function () {
-window.hge = window.hge || {};
+	window.hge = window.hge || {};
 
 var superior = new vs.Superior({
-							   alias:null,
-							   digest:null,
-							   });
+	alias:null,
+	digest:null,
+});
 
 var gate = new vs.Gate({
-					   alias:null,
-					   digest:null,
-					   });
+	alias:null,
+	digest:null,
+	doubleBuffered:true,
+});
 
 var table = new vs.Router.Table();
 
 var bdns = new vs.Router.BDNS(table);
 
+var switchboard = new vs.Router.Switchboard(table);
+
 var lookup = vs.Router.gen({
-						   table:table,
-						   bdns:bdns,
-						   alias:null,
-						   digest:null,
-						   });
+	table:table,
+	bdns:bdns,
+	alias:null,
+	digest:null,
+});
 
 superior.assignAssistant(gate);
 
 superior.gainWorker(lookup);
 
-var api = new vs.API.WorkerInterface(superior);
+var api = new vs.API.WorkerInterface(superior, loop);
+
+var synchronous = true;
+
+hge.terminal = new vs.Terminal(api, synchronous);
+
+
+
+
 
 var broadcast = function () {
 	var t = vs.now();
-	gate.consume({
+	
+	var taskKey = vs.keytext.task;
+	var argsKey = vs.keytext.args;
+	
+	var job = {
 		opentime:t
-	}); // open gate (will loop infinitely and unmitigated at present)
+	};
+	
+	job[taskKey] = "flood";
+	
+	gate.consume(job); // open gate (will loop infinitely and unmitigated at present)
 	xbridge.instance.tick();
 };
 
-hge.terminal = new vs.Terminal(api, loop);
-
 var bldn = null;
 
-var fabric = vs.Fabric.gen(lookup, bldn);
+var fabric = vs.Fabric.gen(lookup, bldn, null, switchboard);
 
 fabric.setURI("CloseNormal.png");
 
-var scape = new vs.Scape.gen(lookup, bldn);
+var scape = new vs.Scape.gen(lookup, bldn, switchboard);
 
 scape.run();
 
-var zone = new vs.Zone.gen(lookup, bldn);
+var zone = new vs.Zone.gen(lookup, bldn, inputHandler, switchboard);
 
 scape.addLeaf(zone);
 
-var troop = new vs.Troop.gen(lookup, bldn);
+var troop = new vs.Troop.gen(lookup, bldn, null, switchboard);
 
 troop.setFabric(fabric);
 
@@ -133,8 +150,7 @@ var pixie = null;
 var pixies = [];
 
 for (var i = 0; i < 400; i++) {
-	pixie = new vs.Pixie.gen(lookup, bldn);
-	pixies.push(pixie);
+	pixie = new vs.Pixie.gen(lookup, bldn, null, null, switchboard);
 	
 	var orbit = 100;
 	pixie.myx = orbit + (Math.random() * orbit);
@@ -147,11 +163,29 @@ for (var i = 0; i < 400; i++) {
 	pixie.setLoc(pixie.myx, pixie.myy);
 	pixie.setFabric(fabric);
 	//pixie.setMagn(0.0625, 0.0625);
-	pixie.setMagn(0.5, 0.5);
+	pixie.setMagn(0.25, 0.25);
 	pixie.setRoot(0.5, 0.5);
 	
+	if (i == 0) {
+		pixie.setLoc(400, 150);
+		pixie.setMagn(1, 1);
+		zone.addLeaf(pixie);
+		continue;
+	}
+	
+	pixies.push(pixie);
 	troop.addLeaf(pixie);
 }
+
+
+function inputHandler(data, source) {
+	if (data.f == vs.input.TouchFlag.MOVED) {
+		var loc = zone.getLoc();
+		loc[0] += data.xx;
+		loc[1] += data.yy;
+		zone.setLoc(loc);
+	} 
+};
 
 function loop() {
 	//return;
@@ -176,7 +210,6 @@ function loop() {
 };
 
 broadcast();
-
 	});
 })();
 
